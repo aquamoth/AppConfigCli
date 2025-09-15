@@ -1,6 +1,8 @@
 using Azure;
 using Azure.Data.AppConfiguration;
 using System.Text;
+using Azure.Identity;
+using Azure.Core;
 
 namespace AppConfigCli;
 
@@ -23,13 +25,32 @@ internal class Program
         }
 
         var connStr = Environment.GetEnvironmentVariable("APP_CONFIG_CONNECTION_STRING");
-        if (string.IsNullOrWhiteSpace(connStr))
+        ConfigurationClient client;
+        if (!string.IsNullOrWhiteSpace(connStr))
         {
-            Console.Error.WriteLine("APP_CONFIG_CONNECTION_STRING not set. Please export your Azure App Configuration connection string.");
-            return 2;
+            client = new ConfigurationClient(connStr);
         }
+        else
+        {
+            // Fallback to AAD auth via endpoint + interactive/device/browser auth
+            var endpoint = Environment.GetEnvironmentVariable("APP_CONFIG_ENDPOINT");
+            if (string.IsNullOrWhiteSpace(endpoint))
+            {
+                Console.WriteLine("APP_CONFIG_CONNECTION_STRING not set.");
+                Console.WriteLine("Enter Azure App Configuration endpoint (e.g., https://<name>.azconfig.io):");
+                Console.Write("> ");
+                endpoint = Console.ReadLine();
+                if (string.IsNullOrWhiteSpace(endpoint))
+                {
+                    Console.Error.WriteLine("No endpoint provided. Exiting.");
+                    return 2;
+                }
+            }
 
-        var client = new ConfigurationClient(connStr);
+            var uri = new Uri(endpoint!);
+            var credential = BuildInteractiveCredential();
+            client = new ConfigurationClient(uri, credential);
+        }
 
         var app = new EditorApp(client, options.Prefix!, options.Label);
         try
@@ -38,11 +59,54 @@ internal class Program
             await app.RunAsync();
             return 0;
         }
+        catch (RequestFailedException rfe) when (rfe.Status == 403)
+        {
+            Console.Error.WriteLine("Forbidden (403): The signed-in identity lacks App Configuration data access.");
+            Console.Error.WriteLine("Grant App Configuration Data Reader (read) or Data Owner (read/write) on the target App Configuration resource.");
+            Console.Error.WriteLine("Alternatively, use a connection string in APP_CONFIG_CONNECTION_STRING.");
+            Console.Error.WriteLine("Tip: If you were silently authenticated via Azure CLI, try signing in interactively with a different account by logging out of Azure CLI or using the device code prompt.");
+            return 1;
+        }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"Error: {ex.Message}");
             return 1;
         }
+    }
+
+    private static TokenCredential BuildInteractiveCredential()
+    {
+        var tenantId = Environment.GetEnvironmentVariable("AZURE_TENANT_ID");
+        var browser = new InteractiveBrowserCredential(new InteractiveBrowserCredentialOptions
+        {
+            TenantId = tenantId,
+            DisableAutomaticAuthentication = false
+        });
+        var cli = new AzureCliCredential();
+        var vsc = new VisualStudioCodeCredential(new VisualStudioCodeCredentialOptions
+        {
+            TenantId = tenantId
+        });
+
+        var device = new DeviceCodeCredential(new DeviceCodeCredentialOptions
+        {
+            TenantId = tenantId,
+            ClientId = "04b07795-8ddb-461a-bbee-02f9e1bf7b46",
+            DeviceCodeCallback = (code, ct) =>
+            {
+                Console.WriteLine();
+                Console.WriteLine("To sign in, open the browser to:");
+                Console.WriteLine(code.VerificationUri);
+                Console.WriteLine("and enter the code:");
+                Console.WriteLine(code.UserCode);
+                Console.WriteLine();
+                return Task.CompletedTask;
+            }
+        });
+
+        // Prefer interactive and device code to give the user a chance to choose the right identity.
+        // CLI/VS Code fallbacks are last.
+        return new ChainedTokenCredential(browser, device, cli, vsc);
     }
 
     private static void PrintHelp()
@@ -623,6 +687,8 @@ internal sealed class EditorApp
         if (t.Length < width) return t.PadRight(width);
         return t;
     }
+
+    
 
     private static int CompareItems(Item a, Item b)
     {

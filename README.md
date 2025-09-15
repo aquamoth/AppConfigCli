@@ -5,9 +5,9 @@ Keyboard-first, cross-platform editor for Azure App Configuration sections, buil
 ## Requirements
 
 - .NET 9 SDK
-- Azure App Configuration connection string
+- Azure App Configuration connection string, or an endpoint + Azure login
 
-Set the connection string in your environment:
+Option A: Connection string auth (simplest)
 
 Linux/macOS (bash/zsh):
 ```bash
@@ -19,6 +19,24 @@ Windows (PowerShell):
 ```powershell
 $env:APP_CONFIG_CONNECTION_STRING = "Endpoint=...;Id=...;Secret=..."
 $env:APP_CONFIG_LABEL = "dev"   # optional
+```
+
+Option B: Azure AD auth (no connection string)
+
+- Get your App Configuration endpoint, e.g. `https://<name>.azconfig.io`
+- Set `APP_CONFIG_ENDPOINT` (or enter it when prompted at startup)
+- Sign in via browser or device code when prompted
+  - Your identity must be granted data-plane access on the App Configuration resource.
+    Assign the built-in role "App Configuration Data Reader" (read) or "App Configuration Data Owner" (read/write).
+
+Linux/macOS (bash/zsh):
+```bash
+export APP_CONFIG_ENDPOINT="https://<name>.azconfig.io"
+```
+
+Windows (PowerShell):
+```powershell
+$env:APP_CONFIG_ENDPOINT = "https://<name>.azconfig.io"
 ```
 
 ## Build and Run
@@ -66,4 +84,6 @@ Legend: `*` modified, `+` new, `-` delete pending, ` ` unchanged
 ## Implementation Notes
 
 - Uses `Azure.Data.AppConfiguration` with a connection string for simple, cross-platform auth.
+- If `APP_CONFIG_CONNECTION_STRING` is not set, falls back to Azure AD auth against `APP_CONFIG_ENDPOINT` using chained credentials (Interactive Browser → Device Code → Azure CLI → VS Code).
+- Azure RBAC is required for AAD auth: grant your user/service principal "App Configuration Data Reader" or "App Configuration Data Owner" on the App Configuration resource.
 - Save performs upsert for new/changed keys and delete for deletions; other keys under the same prefix are untouched.
