@@ -3,6 +3,7 @@ using Azure.Data.AppConfiguration;
 using System.Text;
 using Azure.Identity;
 using Azure.Core;
+using System.Text.Json;
 
 namespace AppConfigCli;
 
@@ -26,14 +27,22 @@ internal class Program
 
         var connStr = Environment.GetEnvironmentVariable("APP_CONFIG_CONNECTION_STRING");
         ConfigurationClient client;
+        Func<Task>? whoAmIAction = null;
+        string authModeDesc;
         if (!string.IsNullOrWhiteSpace(connStr))
         {
             client = new ConfigurationClient(connStr);
+            authModeDesc = "connection-string";
+            whoAmIAction = () =>
+            {
+                Console.WriteLine("Auth: connection string");
+                return Task.CompletedTask;
+            };
         }
         else
         {
             // Fallback to AAD auth via endpoint + interactive/device/browser auth
-            var endpoint = Environment.GetEnvironmentVariable("APP_CONFIG_ENDPOINT");
+            var endpoint = options.Endpoint ?? Environment.GetEnvironmentVariable("APP_CONFIG_ENDPOINT");
             if (string.IsNullOrWhiteSpace(endpoint))
             {
                 Console.WriteLine("APP_CONFIG_CONNECTION_STRING not set.");
@@ -48,11 +57,14 @@ internal class Program
             }
 
             var uri = new Uri(endpoint!);
-            var credential = BuildInteractiveCredential();
+            var tenantId = options.TenantId ?? Environment.GetEnvironmentVariable("AZURE_TENANT_ID");
+            var credential = BuildInteractiveCredential(tenantId);
             client = new ConfigurationClient(uri, credential);
+            authModeDesc = $"aad ({(tenantId ?? "default tenant")})";
+            whoAmIAction = async () => await WhoAmIAsync(credential, uri);
         }
 
-        var app = new EditorApp(client, options.Prefix!, options.Label);
+        var app = new EditorApp(client, options.Prefix!, options.Label, whoAmIAction, authModeDesc);
         try
         {
             await app.LoadAsync();
@@ -74,9 +86,8 @@ internal class Program
         }
     }
 
-    private static TokenCredential BuildInteractiveCredential()
+    private static TokenCredential BuildInteractiveCredential(string? tenantId)
     {
-        var tenantId = Environment.GetEnvironmentVariable("AZURE_TENANT_ID");
         var browser = new InteractiveBrowserCredential(new InteractiveBrowserCredentialOptions
         {
             TenantId = tenantId,
@@ -109,14 +120,60 @@ internal class Program
         return new ChainedTokenCredential(browser, device, cli, vsc);
     }
 
+    private static async Task WhoAmIAsync(TokenCredential credential, Uri endpoint)
+    {
+        try
+        {
+            var ctx = new TokenRequestContext(new[] { "https://azconfig.io/.default" });
+            var token = await credential.GetTokenAsync(ctx, default);
+            var payload = DecodeJwtPayload(token.Token);
+            string GetStr(string name) => payload.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
+            Console.WriteLine("Auth: Azure AD token");
+            Console.WriteLine($"Endpoint: {endpoint}");
+            Console.WriteLine($"TenantId (tid): {GetStr("tid")}");
+            Console.WriteLine($"ObjectId (oid): {GetStr("oid")}");
+            Console.WriteLine($"User/UPN: {GetStr("preferred_username")}");
+            Console.WriteLine($"AppId (appid): {GetStr("appid")}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"whoami failed: {ex.Message}");
+        }
+    }
+
+    private static JsonElement DecodeJwtPayload(string jwt)
+    {
+        var parts = jwt.Split('.');
+        if (parts.Length < 2) throw new InvalidOperationException("Invalid JWT");
+        var payload = parts[1];
+        string s = payload.Replace('-', '+').Replace('_', '/');
+        switch (s.Length % 4)
+        {
+            case 2: s += "=="; break;
+            case 3: s += "="; break;
+        }
+        var bytes = Convert.FromBase64String(s);
+        using var doc = JsonDocument.Parse(bytes);
+        // Return a clone so document disposal doesn’t invalidate
+        return JsonDocument.Parse(doc.RootElement.GetRawText()).RootElement;
+    }
+
     private static void PrintHelp()
     {
         Console.WriteLine("Azure App Configuration Section Editor");
         Console.WriteLine();
-        Console.WriteLine("Usage: appconfig --prefix <keyPrefix> [--label <label>]");
+        Console.WriteLine("Usage: appconfig --prefix <keyPrefix> [--label <label>] [--endpoint <url>] [--tenant <guid>]");
+        Console.WriteLine();
+        Console.WriteLine("Options:");
+        Console.WriteLine("  --prefix <value>    Required. Key prefix (section) to edit");
+        Console.WriteLine("  --label <value>     Optional. Label filter");
+        Console.WriteLine("  --endpoint <url>    Optional. App Configuration endpoint for AAD auth");
+        Console.WriteLine("  --tenant <guid>     Optional. Entra ID tenant for AAD auth");
         Console.WriteLine();
         Console.WriteLine("Environment:");
         Console.WriteLine("  APP_CONFIG_CONNECTION_STRING  Azure App Configuration connection string");
+        Console.WriteLine("  APP_CONFIG_ENDPOINT           App Configuration endpoint (AAD auth)");
+        Console.WriteLine("  AZURE_TENANT_ID               Entra ID tenant to authenticate against (AAD)");
         Console.WriteLine();
         Console.WriteLine("Commands inside editor:");
         Console.WriteLine("  a|add           Add new key under prefix");
@@ -144,6 +201,12 @@ internal class Program
                 case "--label":
                     if (i + 1 < args.Length) { opts.Label = args[++i]; }
                     break;
+                case "--endpoint":
+                    if (i + 1 < args.Length) { opts.Endpoint = args[++i]; }
+                    break;
+                case "--tenant":
+                    if (i + 1 < args.Length) { opts.TenantId = args[++i]; }
+                    break;
                 case "-h":
                 case "--help":
                     opts.ShowHelp = true;
@@ -158,6 +221,8 @@ internal class Program
         public string? Prefix { get; set; }
         public string? Label { get; set; }
         public bool ShowHelp { get; set; }
+        public string? Endpoint { get; set; }
+        public string? TenantId { get; set; }
     }
 }
 
@@ -181,12 +246,16 @@ internal sealed class EditorApp
     private readonly string _prefix;
     private string? _label;
     private readonly List<Item> _items = new();
+    private readonly Func<Task>? _whoAmI;
+    private readonly string _authModeDesc;
 
-    public EditorApp(ConfigurationClient client, string prefix, string? label)
+    public EditorApp(ConfigurationClient client, string prefix, string? label, Func<Task>? whoAmI = null, string authModeDesc = "")
     {
         _client = client;
         _prefix = prefix;
         _label = label;
+        _whoAmI = whoAmI;
+        _authModeDesc = authModeDesc;
     }
 
     public async Task LoadAsync()
@@ -327,6 +396,12 @@ internal sealed class EditorApp
                 case "help":
                     ShowHelp();
                     break;
+                case "whoami":
+                case "w":
+                    if (_whoAmI is not null) await _whoAmI(); else Console.WriteLine("whoami not available in this mode.");
+                    Console.WriteLine("Press Enter to continue...");
+                    Console.ReadLine();
+                    break;
                 default:
                     Console.WriteLine("Unknown command. Type 'h' for help.");
                     break;
@@ -350,7 +425,7 @@ internal sealed class EditorApp
     {
         Console.Clear();
         Console.WriteLine($"Azure App Configuration Editor");
-        Console.WriteLine($"Prefix: '{_prefix}'   Label filter: '{_label ?? "(any)"}'");
+        Console.WriteLine($"Prefix: '{_prefix}'   Label filter: '{_label ?? "(any)"}'   Auth: {_authModeDesc}");
 
         var width = GetWindowWidth();
         bool includeValue = width >= 60; // minimal width for value column
@@ -389,7 +464,7 @@ internal sealed class EditorApp
         }
 
         Console.WriteLine();
-        Console.WriteLine("Commands: a|add, d|delete <n>, e|edit <n>, h|help, l|label [value], q|quit, r|reload, s|save, u|undo <n>");
+        Console.WriteLine("Commands: a|add, d|delete <n>, e|edit <n>, h|help, l|label [value], q|quit, r|reload, s|save, u|undo <n>, w|whoami");
     }
 
     private void ShowHelp()
@@ -406,6 +481,7 @@ internal sealed class EditorApp
         Console.WriteLine("r|reload         Reload settings from Azure (discards local edits)");
         Console.WriteLine("s|save           Save all pending changes to Azure");
         Console.WriteLine("u|undo <n>       Undo local changes for item n");
+        Console.WriteLine("w|whoami         Show current identity and endpoint");
         Console.WriteLine();
         Console.WriteLine("Press Enter to return to the list...");
         Console.ReadLine();

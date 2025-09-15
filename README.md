@@ -63,6 +63,8 @@ make run prefix=app:settings: label=dev
 
 - `--prefix <value>`: Required. Key prefix (section) to edit.
 - `--label <value>`: Optional. Azure App Config label filter.
+- `--endpoint <url>`: Optional. Azure App Configuration endpoint (used for AAD auth).
+- `--tenant <guid>`: Optional. Entra ID tenant ID to sign into (AAD auth).
 
 Editor commands (no mouse required):
 
@@ -73,6 +75,7 @@ Editor commands (no mouse required):
 - `s`: Save all changes to Azure
 - `q`: Quit without saving
 - `h`: Help
+- `w`: WhoAmI (prints current identity and endpoint)
 
 Legend: `*` modified, `+` new, `-` delete pending, ` ` unchanged
 
