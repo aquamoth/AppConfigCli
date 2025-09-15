@@ -199,6 +199,9 @@ internal sealed class EditorApp
         Console.WriteLine("Idx  S  Key                                   Label         Value");
         Console.WriteLine(new string('-', 100));
 
+        const int keyWidth = 35;
+        const int labelWidth = 13;
+
         for (int i = 0; i < _items.Count; i++)
         {
             var item = _items[i];
@@ -209,12 +212,12 @@ internal sealed class EditorApp
                 ItemState.Deleted => '-',
                 _ => ' '
             };
-            var key = item.ShortKey.Length > 35 ? item.ShortKey[..35] + "…" : item.ShortKey;
-            var label = item.Label ?? "(none)";
-            if (label.Length > 12) label = label[..12] + "…";
+            var keyDisp = TruncateFixed(item.ShortKey, keyWidth);
+            var labelText = item.Label ?? "(none)";
+            var labelDisp = TruncateFixed(labelText, labelWidth);
             var val = (item.Value ?? string.Empty).Replace('\n', ' ');
-            if (val.Length > 40) val = val[..40] + "…";
-            Console.WriteLine($"{i + 1,3}  {s}  {key,-35}  {label,-13}  {val}");
+            if (val.Length > 40) val = val[..39] + "…";
+            Console.WriteLine($"{i + 1,3}  {s}  {keyDisp,-35}  {labelDisp,-13}  {val}");
         }
 
         Console.WriteLine();
@@ -417,5 +420,12 @@ internal sealed class EditorApp
                 Render();
             }
         }
+    }
+
+    private static string TruncateFixed(string s, int width)
+    {
+        if (s.Length <= width) return s;
+        if (width <= 1) return new string('…', Math.Max(0, width));
+        return s[..(width - 1)] + "…";
     }
 }
