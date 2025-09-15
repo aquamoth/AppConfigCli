@@ -549,7 +549,30 @@ internal sealed class EditorApp
                 case "q":
                 case "quit":
                 case "exit":
-                    return;
+                    if (HasPendingChanges(out var newCount, out var modCount, out var delCount))
+                    {
+                        Console.WriteLine($"You have unsaved changes: +{newCount} new, *{modCount} modified, -{delCount} deleted.");
+                        Console.WriteLine("Do you want to save before exiting?");
+                        Console.WriteLine("  S) Save and quit");
+                        Console.WriteLine("  Q) Quit without saving");
+                        Console.WriteLine("  C) Cancel");
+                        while (true)
+                        {
+                            Console.Write("> ");
+                            var choice = (Console.ReadLine() ?? string.Empty).Trim().ToLowerInvariant();
+                            if (choice.Length == 0) continue;
+                            var ch = choice[0];
+                            if (ch == 'c') break; // cancel quit
+                            if (ch == 's') { await SaveAsync(pause: false); return; }
+                            if (ch == 'q') { return; }
+                            Console.WriteLine("Please enter S, Q, or C.");
+                        }
+                        break;
+                    }
+                    else
+                    {
+                        return;
+                    }
                 case "h":
                 case "?":
                 case "help":
@@ -959,7 +982,7 @@ internal sealed class EditorApp
         await LoadAsync();
     }
 
-    private async Task SaveAsync()
+    private async Task SaveAsync(bool pause = true)
     {
         Console.WriteLine("Saving changes...");
         int changes = 0;
@@ -997,8 +1020,11 @@ internal sealed class EditorApp
         }
 
         Console.WriteLine(changes == 0 ? "No changes to save." : $"Saved {changes} change(s).");
-        Console.WriteLine("Press Enter to continue...");
-        Console.ReadLine();
+        if (pause)
+        {
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+        }
     }
 
     private static string ReadLineWithInitial(string initial)
@@ -1118,6 +1144,14 @@ internal sealed class EditorApp
         var t = TruncateFixed(text, width);
         if (t.Length < width) return t.PadRight(width);
         return t;
+    }
+
+    private bool HasPendingChanges(out int newCount, out int modCount, out int delCount)
+    {
+        newCount = _items.Count(i => i.State == ItemState.New);
+        modCount = _items.Count(i => i.State == ItemState.Modified);
+        delCount = _items.Count(i => i.State == ItemState.Deleted);
+        return (newCount + modCount + delCount) > 0;
     }
 
     
