@@ -58,9 +58,10 @@ internal class Program
 
             var uri = new Uri(endpoint!);
             var tenantId = options.TenantId ?? Environment.GetEnvironmentVariable("AZURE_TENANT_ID");
-            var credential = BuildInteractiveCredential(tenantId);
+            var credential = BuildCredential(tenantId, options.Auth);
             client = new ConfigurationClient(uri, credential);
-            authModeDesc = $"aad ({(tenantId ?? "default tenant")})";
+            var authLabel = string.IsNullOrWhiteSpace(options.Auth) ? "auto" : options.Auth;
+            authModeDesc = $"aad ({(tenantId ?? "default tenant")}, auth={authLabel})";
             whoAmIAction = async () => await WhoAmIAsync(credential, uri);
         }
 
@@ -86,7 +87,7 @@ internal class Program
         }
     }
 
-    private static TokenCredential BuildInteractiveCredential(string? tenantId)
+    private static TokenCredential BuildCredential(string? tenantId, string? authMode)
     {
         var browser = new InteractiveBrowserCredential(new InteractiveBrowserCredentialOptions
         {
@@ -98,7 +99,6 @@ internal class Program
         {
             TenantId = tenantId
         });
-
         var device = new DeviceCodeCredential(new DeviceCodeCredentialOptions
         {
             TenantId = tenantId,
@@ -115,18 +115,25 @@ internal class Program
             }
         });
 
-        // Choose order based on environment. In WSL or headless Linux (no DISPLAY), prefer device code first,
-        // because Interactive Browser cannot launch a browser reliably.
-        bool isWsl = IsWsl();
-        bool hasDisplay = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY"));
-        if (isWsl || (!OperatingSystem.IsWindows() && !hasDisplay))
+        switch (authMode?.ToLowerInvariant())
         {
-            return new ChainedTokenCredential(device, browser, cli, vsc);
-        }
-        else
-        {
-            // On Windows/macOS with a GUI, try browser first, then device code.
-            return new ChainedTokenCredential(browser, device, cli, vsc);
+            case "device": return device;
+            case "browser": return browser;
+            case "cli": return cli;
+            case "vscode": return vsc;
+            case null:
+            case "auto":
+            default:
+                bool isWsl = IsWsl();
+                bool hasDisplay = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY"));
+                if (isWsl || (!OperatingSystem.IsWindows() && !hasDisplay))
+                {
+                    return new ChainedTokenCredential(device, browser, cli, vsc);
+                }
+                else
+                {
+                    return new ChainedTokenCredential(browser, device, cli, vsc);
+                }
         }
     }
 
@@ -196,13 +203,14 @@ internal class Program
     {
         Console.WriteLine("Azure App Configuration Section Editor");
         Console.WriteLine();
-        Console.WriteLine("Usage: appconfig --prefix <keyPrefix> [--label <label>] [--endpoint <url>] [--tenant <guid>]");
+        Console.WriteLine("Usage: appconfig --prefix <keyPrefix> [--label <label>] [--endpoint <url>] [--tenant <guid>] [--auth <mode>]");
         Console.WriteLine();
         Console.WriteLine("Options:");
         Console.WriteLine("  --prefix <value>    Required. Key prefix (section) to edit");
         Console.WriteLine("  --label <value>     Optional. Label filter");
         Console.WriteLine("  --endpoint <url>    Optional. App Configuration endpoint for AAD auth");
         Console.WriteLine("  --tenant <guid>     Optional. Entra ID tenant for AAD auth");
+        Console.WriteLine("  --auth <mode>       Optional. Auth method: auto|device|browser|cli|vscode (default: auto)");
         Console.WriteLine();
         Console.WriteLine("Environment:");
         Console.WriteLine("  APP_CONFIG_CONNECTION_STRING  Azure App Configuration connection string");
@@ -241,6 +249,9 @@ internal class Program
                 case "--tenant":
                     if (i + 1 < args.Length) { opts.TenantId = args[++i]; }
                     break;
+                case "--auth":
+                    if (i + 1 < args.Length) { opts.Auth = args[++i].ToLowerInvariant(); }
+                    break;
                 case "-h":
                 case "--help":
                     opts.ShowHelp = true;
@@ -257,6 +268,7 @@ internal class Program
         public bool ShowHelp { get; set; }
         public string? Endpoint { get; set; }
         public string? TenantId { get; set; }
+        public string? Auth { get; set; } // device|browser|cli|vscode|auto
     }
 }
 

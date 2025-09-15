@@ -67,6 +67,7 @@ make run prefix=app:settings: label=dev
 - `--label <value>`: Optional. Azure App Config label filter.
 - `--endpoint <url>`: Optional. Azure App Configuration endpoint (used for AAD auth).
 - `--tenant <guid>`: Optional. Entra ID tenant ID to sign into (AAD auth).
+- `--auth <mode>`: Optional. Auth method: `auto` (default), `device`, `browser`, `cli`, or `vscode`.
 
 Editor commands (no mouse required):
 
