@@ -1,0 +1,18 @@
+# Build artifacts
+bin/
+obj/
+
+# IDEs and tooling
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Local environment
+.env
+*.local.json
