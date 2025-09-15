@@ -296,11 +296,29 @@ internal sealed class EditorApp
         var k = Console.ReadLine();
         if (string.IsNullOrWhiteSpace(k)) return;
         k = k.Trim();
-        if (_items.Any(i => i.ShortKey.Equals(k, StringComparison.Ordinal)))
+        
+        string? chosenLabel = _label;
+        if (chosenLabel is not null)
         {
-            Console.WriteLine("Key already exists.");
+            Console.WriteLine($"Adding new key under label: [{chosenLabel}]");
+        }
+        else
+        {
+            Console.WriteLine("Enter label for new key (empty for none):");
+            Console.Write("> ");
+            var lbl = Console.ReadLine();
+            chosenLabel = string.IsNullOrWhiteSpace(lbl) ? null : lbl!.Trim();
+            Console.WriteLine($"Using label: [{chosenLabel ?? "(none)"}]");
+        }
+
+        // Prevent duplicates only for the same label
+        if (_items.Any(i => i.ShortKey.Equals(k, StringComparison.Ordinal)
+                            && string.Equals(i.Label ?? string.Empty, chosenLabel ?? string.Empty, StringComparison.Ordinal)))
+        {
+            Console.WriteLine("Key already exists for this label.");
             return;
         }
+
         Console.WriteLine("Enter value:");
         Console.Write("> ");
         var v = Console.ReadLine() ?? string.Empty;
@@ -308,7 +326,7 @@ internal sealed class EditorApp
         {
             FullKey = _prefix + k,
             ShortKey = k,
-            Label = _label,
+            Label = chosenLabel,
             OriginalValue = null,
             Value = v,
             State = ItemState.New
