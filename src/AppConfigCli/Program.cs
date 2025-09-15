@@ -328,14 +328,14 @@ internal class Program
         Console.WriteLine("Commands inside editor:");
         Console.WriteLine("  a|add           Add new key under prefix");
         Console.WriteLine("  c|copy <n> [m]  Copy rows n..m to another label and switch");
-        Console.WriteLine("  d|delete <n>    Delete item n");
+        Console.WriteLine("  d|delete <n> [m]  Delete items n..m");
         Console.WriteLine("  e|edit <n>      Edit item n");
         Console.WriteLine("  h|help          Help");
         Console.WriteLine("  l|label [value] Change label filter (no arg clears)");
         Console.WriteLine("  q|quit          Quit");
         Console.WriteLine("  r|reload        Reload settings from Azure");
         Console.WriteLine("  s|save          Save all changes");
-        Console.WriteLine("  u|undo <n>      Undo local change for n");
+        Console.WriteLine("  u|undo <n> [m]|all  Undo selection or all pending changes");
         Console.WriteLine();
     }
 
@@ -623,7 +623,7 @@ internal sealed class EditorApp
         }
 
         Console.WriteLine();
-        Console.WriteLine("Commands: a|add, c|copy <n> [m], d|delete <n>, e|edit <n>, h|help, l|label [value], q|quit, r|reload, s|save, u|undo <n>, w|whoami");
+        Console.WriteLine("Commands: a|add, c|copy <n> [m], d|delete <n> [m], e|edit <n>, h|help, l|label [value], q|quit, r|reload, s|save, u|undo <n> [m]|all, w|whoami");
     }
 
     private void ShowHelp()
@@ -633,14 +633,14 @@ internal sealed class EditorApp
         Console.WriteLine(new string('-', 40));
         Console.WriteLine("a|add            Add a new key under the current prefix");
         Console.WriteLine("c|copy <n> [m]   Copy rows n..m to another label and switch");
-        Console.WriteLine("d|delete <n>     Delete item n");
+        Console.WriteLine("d|delete <n> [m] Delete items n..m");
         Console.WriteLine("e|edit <n>       Edit value of item number n");
         Console.WriteLine("h|help|?         Show this help");
         Console.WriteLine("l|label [value]  Change label filter (no arg clears)");
         Console.WriteLine("q|quit           Quit the editor");
         Console.WriteLine("r|reload         Reload settings from Azure (discards local edits)");
         Console.WriteLine("s|save           Save all pending changes to Azure");
-        Console.WriteLine("u|undo <n>       Undo local changes for item n");
+        Console.WriteLine("u|undo <n> [m]|all  Undo local changes for rows n..m, or 'all' to undo everything");
         Console.WriteLine("w|whoami         Show current identity and endpoint");
         Console.WriteLine();
         Console.WriteLine("Press Enter to return to the list...");
@@ -793,24 +793,137 @@ internal sealed class EditorApp
 
     private void Delete(string[] args)
     {
-        if (!TryParseIndex(args, out var idx)) return;
-        var item = _items[idx];
-        if (item.IsNew)
+        if (args.Length == 0)
         {
-            _items.RemoveAt(idx);
+            Console.WriteLine("Usage: d|delete <n> [m]  (deletes rows n..m)");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+            return;
         }
-        else
+
+        if (!int.TryParse(args[0], out int start)) { Console.WriteLine("First argument must be an index."); Console.ReadLine(); return; }
+        int end = start;
+        if (args.Length >= 2 && int.TryParse(args[1], out int endParsed)) end = endParsed;
+        if (start < 1 || end < 1 || start > _items.Count || end > _items.Count)
         {
-            item.State = ItemState.Deleted;
+            Console.WriteLine("Index out of range."); Console.ReadLine(); return;
         }
+        if (start > end) (start, end) = (end, start);
+
+        // Build index list and process from highest to lowest to avoid shifting
+        int removedNew = 0, markedExisting = 0;
+        var indices = Enumerable.Range(start - 1, end - start + 1).OrderByDescending(i => i).ToList();
+        foreach (var idx in indices)
+        {
+            var item = _items[idx];
+            if (item.IsNew)
+            {
+                _items.RemoveAt(idx);
+                removedNew++;
+            }
+            else
+            {
+                item.State = ItemState.Deleted;
+                markedExisting++;
+            }
+        }
+
+        Console.WriteLine($"Deleted selection: removed {removedNew} new item(s), marked {markedExisting} existing item(s) for deletion.");
+        Console.WriteLine("Press Enter to continue...");
+        Console.ReadLine();
     }
 
     private void Undo(string[] args)
     {
-        if (!TryParseIndex(args, out var idx)) return;
-        var item = _items[idx];
-        item.Value = item.OriginalValue;
-        item.State = ItemState.Unchanged;
+        if (args.Length == 0)
+        {
+            Console.WriteLine("Usage: u|undo <n> [m]  (undos rows n..m)");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+            return;
+        }
+
+        if (args.Length == 1 && string.Equals(args[0], "all", StringComparison.OrdinalIgnoreCase))
+        {
+            UndoAll();
+            return;
+        }
+
+        if (!int.TryParse(args[0], out int start)) { Console.WriteLine("First argument must be an index or 'all'."); Console.ReadLine(); return; }
+        int end = start;
+        if (args.Length >= 2 && int.TryParse(args[1], out int endParsed)) end = endParsed;
+        if (start < 1 || end < 1 || start > _items.Count || end > _items.Count)
+        {
+            Console.WriteLine("Index out of range."); Console.ReadLine(); return;
+        }
+        if (start > end) (start, end) = (end, start);
+
+        int removedNew = 0, restored = 0, untouched = 0;
+        // Process descending indices if removal may happen
+        var indices = Enumerable.Range(start - 1, end - start + 1).OrderByDescending(i => i).ToList();
+        foreach (var idx in indices)
+        {
+            if (idx < 0 || idx >= _items.Count) { continue; }
+            var item = _items[idx];
+            if (item.IsNew)
+            {
+                _items.RemoveAt(idx);
+                removedNew++;
+            }
+            else if (item.State == ItemState.Deleted)
+            {
+                item.State = ItemState.Unchanged;
+                restored++;
+            }
+            else if (item.State == ItemState.Modified)
+            {
+                item.Value = item.OriginalValue;
+                item.State = ItemState.Unchanged;
+                restored++;
+            }
+            else
+            {
+                untouched++;
+            }
+        }
+
+        Console.WriteLine($"Undo selection: removed {removedNew} new item(s), restored {restored} item(s), untouched {untouched}.");
+        Console.WriteLine("Press Enter to continue...");
+        Console.ReadLine();
+    }
+
+    private void UndoAll()
+    {
+        int removedNew = 0, restored = 0, untouched = 0;
+        // Iterate descending to safely remove new items
+        for (int idx = _items.Count - 1; idx >= 0; idx--)
+        {
+            var item = _items[idx];
+            if (item.IsNew)
+            {
+                _items.RemoveAt(idx);
+                removedNew++;
+            }
+            else if (item.State == ItemState.Deleted)
+            {
+                item.State = ItemState.Unchanged;
+                restored++;
+            }
+            else if (item.State == ItemState.Modified)
+            {
+                item.Value = item.OriginalValue;
+                item.State = ItemState.Unchanged;
+                restored++;
+            }
+            else
+            {
+                untouched++;
+            }
+        }
+
+        Console.WriteLine($"Undo all: removed {removedNew} new item(s), restored {restored} item(s), untouched {untouched}.");
+        Console.WriteLine("Press Enter to continue...");
+        Console.ReadLine();
     }
 
     private bool TryParseIndex(string[] args, out int idx)
