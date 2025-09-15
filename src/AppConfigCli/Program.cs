@@ -55,13 +55,15 @@ internal class Program
         Console.WriteLine("  APP_CONFIG_CONNECTION_STRING  Azure App Configuration connection string");
         Console.WriteLine();
         Console.WriteLine("Commands inside editor:");
-        Console.WriteLine("  e <n>  Edit item n");
-        Console.WriteLine("  a      Add new key under prefix");
-        Console.WriteLine("  d <n>  Delete item n (confirm)");
-        Console.WriteLine("  r <n>  Revert local change for n");
-        Console.WriteLine("  s      Save all changes");
-        Console.WriteLine("  q      Quit");
-        Console.WriteLine("  h      Help");
+        Console.WriteLine("  e|edit <n>  Edit item n");
+        Console.WriteLine("  a|add       Add new key under prefix");
+        Console.WriteLine("  d|delete <n>  Delete item n (confirm)");
+        Console.WriteLine("  u|undo <n>  Undo local change for n");
+        Console.WriteLine("  s|save      Save all changes");
+        Console.WriteLine("  q|quit      Quit");
+        Console.WriteLine("  h|help      Help");
+        Console.WriteLine("  l|label [value]  Change label filter (no arg clears)");
+        Console.WriteLine("  reload      Reload settings from Azure");
         Console.WriteLine();
     }
 
@@ -163,27 +165,39 @@ internal sealed class EditorApp
             switch (cmd)
             {
                 case "e":
+                case "edit":
                     Edit(parts.Skip(1).ToArray());
                     break;
                 case "a":
+                case "add":
                     Add();
                     break;
                 case "d":
+                case "delete":
                     Delete(parts.Skip(1).ToArray());
                     break;
-                case "r":
-                    Revert(parts.Skip(1).ToArray());
+                case "u":
+                case "undo":
+                    Undo(parts.Skip(1).ToArray());
                     break;
                 case "label":
+                case "l":
                     await ChangeLabelAsync(parts.Skip(1).ToArray());
                     break;
                 case "s":
+                case "save":
                     await SaveAsync();
                     break;
+                case "reload":
+                    await LoadAsync();
+                    break;
                 case "q":
+                case "quit":
+                case "exit":
                     return;
                 case "h":
                 case "?":
+                case "help":
                     ShowHelp();
                     break;
                 default:
@@ -236,7 +250,7 @@ internal sealed class EditorApp
         }
 
         Console.WriteLine();
-        Console.WriteLine("Commands: e <n>, a, d <n>, r <n>, label <value|clear>, s, q, h");
+        Console.WriteLine("Commands: e|edit <n>, a|add, d|delete <n>, u|undo <n>, l|label [value], s|save, reload, q|quit, h|help");
     }
 
     private void ShowHelp()
@@ -244,14 +258,15 @@ internal sealed class EditorApp
         Console.WriteLine();
         Console.WriteLine("Help - Commands");
         Console.WriteLine(new string('-', 40));
-        Console.WriteLine("e <n>  Edit value of item number n");
-        Console.WriteLine("a      Add a new key under the current prefix");
-        Console.WriteLine("d <n>  Delete item n (asks for 'yes' confirmation)");
-        Console.WriteLine("r <n>  Revert local changes for item n");
-        Console.WriteLine("label <value|clear>  Change label filter (use 'clear' for any label)");
-        Console.WriteLine("s      Save all pending changes to Azure");
-        Console.WriteLine("q      Quit the editor");
-        Console.WriteLine("h/?    Show this help");
+        Console.WriteLine("e|edit <n>   Edit value of item number n");
+        Console.WriteLine("a|add        Add a new key under the current prefix");
+        Console.WriteLine("d|delete <n> Delete item n (asks for 'yes' confirmation)");
+        Console.WriteLine("u|undo <n>   Undo local changes for item n");
+        Console.WriteLine("l|label [value]  Change label filter (no arg clears)");
+        Console.WriteLine("s|save       Save all pending changes to Azure");
+        Console.WriteLine("reload       Reload settings from Azure (discards local edits)");
+        Console.WriteLine("q|quit       Quit the editor");
+        Console.WriteLine("h|help|?     Show this help");
         Console.WriteLine();
         Console.WriteLine("Press Enter to return to the list...");
         Console.ReadLine();
@@ -311,7 +326,7 @@ internal sealed class EditorApp
         item.State = ItemState.Deleted;
     }
 
-    private void Revert(string[] args)
+    private void Undo(string[] args)
     {
         if (!TryParseIndex(args, out var idx)) return;
         var item = _items[idx];
@@ -341,22 +356,14 @@ internal sealed class EditorApp
     {
         if (args.Length == 0)
         {
-            Console.WriteLine($"Current label filter: '{_label ?? "(any)"}'");
-            Console.WriteLine("Usage: label <value>|clear");
-            Console.WriteLine("Press Enter to continue...");
-            Console.ReadLine();
+            // No argument clears the filter
+            _label = null;
+            await LoadAsync();
             return;
         }
 
         var newLabelArg = string.Join(' ', args).Trim();
-        string? newLabel = newLabelArg.Length == 0 ? null : newLabelArg;
-        if (string.Equals(newLabelArg, "clear", StringComparison.OrdinalIgnoreCase) ||
-            string.Equals(newLabelArg, "any", StringComparison.OrdinalIgnoreCase))
-        {
-            newLabel = null;
-        }
-
-        _label = newLabel;
+        _label = newLabelArg; // accept any value literally, including "clear"
         await LoadAsync();
     }
 
