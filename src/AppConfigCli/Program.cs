@@ -1,6 +1,9 @@
 using Azure;
 using Azure.Data.AppConfiguration;
 using System.Text;
+using Azure.Identity;
+using Azure.Core;
+using System.Text.Json;
 
 namespace AppConfigCli;
 
@@ -23,20 +26,64 @@ internal class Program
         }
 
         var connStr = Environment.GetEnvironmentVariable("APP_CONFIG_CONNECTION_STRING");
-        if (string.IsNullOrWhiteSpace(connStr))
+        ConfigurationClient client;
+        Func<Task>? whoAmIAction = null;
+        string authModeDesc;
+        if (!string.IsNullOrWhiteSpace(connStr))
         {
-            Console.Error.WriteLine("APP_CONFIG_CONNECTION_STRING not set. Please export your Azure App Configuration connection string.");
-            return 2;
+            client = new ConfigurationClient(connStr);
+            authModeDesc = "connection-string";
+            whoAmIAction = () =>
+            {
+                Console.WriteLine("Auth: connection string");
+                return Task.CompletedTask;
+            };
+        }
+        else
+        {
+            // Fallback to AAD auth via endpoint + interactive/device/browser auth
+            var tenantId = options.TenantId ?? Environment.GetEnvironmentVariable("AZURE_TENANT_ID");
+            var credential = BuildCredential(tenantId, options.Auth);
+
+            var endpoint = options.Endpoint ?? Environment.GetEnvironmentVariable("APP_CONFIG_ENDPOINT");
+            if (string.IsNullOrWhiteSpace(endpoint))
+            {
+                Console.WriteLine("No endpoint provided. Discovering App Configuration stores via Azure…");
+                endpoint = await TrySelectEndpointAsync(credential);
+                if (string.IsNullOrWhiteSpace(endpoint))
+                {
+                    Console.WriteLine("Could not list stores or none found. Enter endpoint manually (e.g., https://<name>.azconfig.io):");
+                    Console.Write("> ");
+                    endpoint = Console.ReadLine();
+                    if (string.IsNullOrWhiteSpace(endpoint))
+                    {
+                        Console.Error.WriteLine("No endpoint provided. Exiting.");
+                        return 2;
+                    }
+                }
+            }
+
+            var uri = NormalizeEndpoint(endpoint!);
+            client = new ConfigurationClient(uri, credential);
+            var authLabel = string.IsNullOrWhiteSpace(options.Auth) ? "auto" : options.Auth;
+            authModeDesc = $"aad ({(tenantId ?? "default tenant")}, auth={authLabel})";
+            whoAmIAction = async () => await WhoAmIAsync(credential, uri);
         }
 
-        var client = new ConfigurationClient(connStr);
-
-        var app = new EditorApp(client, options.Prefix!, options.Label);
+        var app = new EditorApp(client, options.Prefix!, options.Label, whoAmIAction, authModeDesc);
         try
         {
             await app.LoadAsync();
             await app.RunAsync();
             return 0;
+        }
+        catch (RequestFailedException rfe) when (rfe.Status == 403)
+        {
+            Console.Error.WriteLine("Forbidden (403): The signed-in identity lacks App Configuration data access.");
+            Console.Error.WriteLine("Grant App Configuration Data Reader (read) or Data Owner (read/write) on the target App Configuration resource.");
+            Console.Error.WriteLine("Alternatively, use a connection string in APP_CONFIG_CONNECTION_STRING.");
+            Console.Error.WriteLine("Tip: If you were silently authenticated via Azure CLI, try signing in interactively with a different account by logging out of Azure CLI or using the device code prompt.");
+            return 1;
         }
         catch (Exception ex)
         {
@@ -45,25 +92,250 @@ internal class Program
         }
     }
 
+    private static TokenCredential BuildCredential(string? tenantId, string? authMode)
+    {
+        var browser = new InteractiveBrowserCredential(new InteractiveBrowserCredentialOptions
+        {
+            TenantId = tenantId,
+            DisableAutomaticAuthentication = false
+        });
+        var cli = new AzureCliCredential();
+        var vsc = new VisualStudioCodeCredential(new VisualStudioCodeCredentialOptions
+        {
+            TenantId = tenantId
+        });
+        var device = new DeviceCodeCredential(new DeviceCodeCredentialOptions
+        {
+            TenantId = tenantId,
+            ClientId = "04b07795-8ddb-461a-bbee-02f9e1bf7b46",
+            DeviceCodeCallback = (code, ct) =>
+            {
+                Console.WriteLine();
+                Console.WriteLine("To sign in, open the browser to:");
+                Console.WriteLine(code.VerificationUri);
+                Console.WriteLine("and enter the code:");
+                Console.WriteLine(code.UserCode);
+                Console.WriteLine();
+                return Task.CompletedTask;
+            }
+        });
+
+        switch (authMode?.ToLowerInvariant())
+        {
+            case "device": return device;
+            case "browser": return browser;
+            case "cli": return cli;
+            case "vscode": return vsc;
+            case null:
+            case "auto":
+            default:
+                bool isWsl = IsWsl();
+                bool hasDisplay = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY"));
+                if (isWsl || (!OperatingSystem.IsWindows() && !hasDisplay))
+                {
+                    return new ChainedTokenCredential(device, browser, cli, vsc);
+                }
+                else
+                {
+                    return new ChainedTokenCredential(browser, device, cli, vsc);
+                }
+        }
+    }
+
+    private static bool IsWsl()
+    {
+        try
+        {
+            if (!OperatingSystem.IsLinux()) return false;
+            var wslEnv = Environment.GetEnvironmentVariable("WSL_DISTRO_NAME");
+            if (!string.IsNullOrEmpty(wslEnv)) return true;
+            string path1 = "/proc/sys/kernel/osrelease";
+            if (File.Exists(path1))
+            {
+                var txt = File.ReadAllText(path1);
+                if (txt.Contains("microsoft", StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            string path2 = "/proc/version";
+            if (File.Exists(path2))
+            {
+                var txt = File.ReadAllText(path2);
+                if (txt.Contains("microsoft", StringComparison.OrdinalIgnoreCase)) return true;
+            }
+        }
+        catch { }
+        return false;
+    }
+
+    private static async Task WhoAmIAsync(TokenCredential credential, Uri endpoint)
+    {
+        try
+        {
+            var ctx = new TokenRequestContext(new[] { "https://azconfig.io/.default" });
+            var token = await credential.GetTokenAsync(ctx, default);
+            var payload = DecodeJwtPayload(token.Token);
+            string GetStr(string name) => payload.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
+            Console.WriteLine("Auth: Azure AD token");
+            Console.WriteLine($"Endpoint: {endpoint}");
+            Console.WriteLine($"TenantId (tid): {GetStr("tid")}");
+            Console.WriteLine($"ObjectId (oid): {GetStr("oid")}");
+            Console.WriteLine($"User/UPN: {GetStr("preferred_username")}");
+            Console.WriteLine($"AppId (appid): {GetStr("appid")}");
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"whoami failed: {ex.Message}");
+        }
+    }
+
+    private static async Task<string?> TrySelectEndpointAsync(TokenCredential credential)
+    {
+        try
+        {
+            // Get ARM token
+            var token = await credential.GetTokenAsync(new TokenRequestContext(new[] { "https://management.azure.com/.default" }), default);
+            using var http = new HttpClient();
+            http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token.Token);
+
+            // List subscriptions
+            var subsResp = await http.GetAsync("https://management.azure.com/subscriptions?api-version=2020-01-01");
+            if (!subsResp.IsSuccessStatusCode)
+            {
+                return null;
+            }
+            using var subsDoc = JsonDocument.Parse(await subsResp.Content.ReadAsStringAsync());
+            var subs = new List<SubRef>();
+            if (subsDoc.RootElement.TryGetProperty("value", out var subsArr) && subsArr.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var e in subsArr.EnumerateArray())
+                {
+                    subs.Add(new SubRef
+                    {
+                        Id = e.GetProperty("subscriptionId").GetString() ?? string.Empty,
+                        Name = e.TryGetProperty("displayName", out var dn) ? dn.GetString() ?? string.Empty : string.Empty
+                    });
+                }
+            }
+
+            var stores = new List<(string Name, string ResourceGroup, string Location, string Endpoint)>();
+            foreach (var sub in subs)
+            {
+                string subId = sub.Id;
+                var url = $"https://management.azure.com/subscriptions/{subId}/providers/Microsoft.AppConfiguration/configurationStores?api-version=2023-03-01";
+                var resp = await http.GetAsync(url);
+                if (!resp.IsSuccessStatusCode) continue;
+                using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+                if (!doc.RootElement.TryGetProperty("value", out var arr) || arr.ValueKind != JsonValueKind.Array) continue;
+                foreach (var item in arr.EnumerateArray())
+                {
+                    var name = item.GetProperty("name").GetString() ?? "";
+                    var id = item.GetProperty("id").GetString() ?? "";
+                    var location = item.TryGetProperty("location", out var locEl) ? (locEl.GetString() ?? "") : "";
+                    string rg = "";
+                    var parts = id.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                    for (int i = 0; i + 1 < parts.Length; i++)
+                    {
+                        if (parts[i].Equals("resourceGroups", StringComparison.OrdinalIgnoreCase))
+                        {
+                            rg = parts[i + 1];
+                            break;
+                        }
+                    }
+                    var endpoint = item.GetProperty("properties").GetProperty("endpoint").GetString() ?? "";
+                    if (!string.IsNullOrEmpty(endpoint))
+                        stores.Add((name, rg, location, endpoint));
+                }
+            }
+
+            if (stores.Count == 0) return null;
+
+            Console.WriteLine();
+            Console.WriteLine("Select App Configuration store:");
+            for (int i = 0; i < stores.Count; i++)
+            {
+                var s = stores[i];
+                Console.WriteLine($"  {i + 1}. {s.Name}  rg:{s.ResourceGroup}  loc:{s.Location}  {s.Endpoint}");
+            }
+            Console.Write("Choice [1-" + stores.Count + "]: ");
+            var sel = Console.ReadLine();
+            if (int.TryParse(sel, out var idx) && idx >= 1 && idx <= stores.Count)
+            {
+                return stores[idx - 1].Endpoint;
+            }
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static Uri NormalizeEndpoint(string endpoint)
+    {
+        var e = (endpoint ?? string.Empty).Trim();
+        if (Uri.TryCreate(e, UriKind.Absolute, out var abs) &&
+            (abs.Scheme == Uri.UriSchemeHttps || abs.Scheme == Uri.UriSchemeHttp))
+        {
+            return abs;
+        }
+        if (e.Contains("azconfig.io", StringComparison.OrdinalIgnoreCase))
+        {
+            return new Uri("https://" + e.TrimStart('/'));
+        }
+        return new Uri($"https://{e}.azconfig.io");
+    }
+
+    private sealed class SubRef
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
+    }
+
+    private static JsonElement DecodeJwtPayload(string jwt)
+    {
+        var parts = jwt.Split('.');
+        if (parts.Length < 2) throw new InvalidOperationException("Invalid JWT");
+        var payload = parts[1];
+        string s = payload.Replace('-', '+').Replace('_', '/');
+        switch (s.Length % 4)
+        {
+            case 2: s += "=="; break;
+            case 3: s += "="; break;
+        }
+        var bytes = Convert.FromBase64String(s);
+        using var doc = JsonDocument.Parse(bytes);
+        // Return a clone so document disposal doesn’t invalidate
+        return JsonDocument.Parse(doc.RootElement.GetRawText()).RootElement;
+    }
+
     private static void PrintHelp()
     {
         Console.WriteLine("Azure App Configuration Section Editor");
         Console.WriteLine();
-        Console.WriteLine("Usage: appconfig --prefix <keyPrefix> [--label <label>]");
+        Console.WriteLine("Usage: appconfig --prefix <keyPrefix> [--label <label>] [--endpoint <url>] [--tenant <guid>] [--auth <mode>]");
+        Console.WriteLine();
+        Console.WriteLine("Options:");
+        Console.WriteLine("  --prefix <value>    Required. Key prefix (section) to edit");
+        Console.WriteLine("  --label <value>     Optional. Label filter");
+        Console.WriteLine("  --endpoint <url>    Optional. App Configuration endpoint for AAD auth");
+        Console.WriteLine("  --tenant <guid>     Optional. Entra ID tenant for AAD auth");
+        Console.WriteLine("  --auth <mode>       Optional. Auth method: auto|device|browser|cli|vscode (default: auto)");
         Console.WriteLine();
         Console.WriteLine("Environment:");
         Console.WriteLine("  APP_CONFIG_CONNECTION_STRING  Azure App Configuration connection string");
+        Console.WriteLine("  APP_CONFIG_ENDPOINT           App Configuration endpoint (AAD auth)");
+        Console.WriteLine("  AZURE_TENANT_ID               Entra ID tenant to authenticate against (AAD)");
         Console.WriteLine();
         Console.WriteLine("Commands inside editor:");
         Console.WriteLine("  a|add           Add new key under prefix");
-        Console.WriteLine("  d|delete <n>    Delete item n");
+        Console.WriteLine("  c|copy <n> [m]  Copy rows n..m to another label and switch");
+        Console.WriteLine("  d|delete <n> [m]  Delete items n..m");
         Console.WriteLine("  e|edit <n>      Edit item n");
         Console.WriteLine("  h|help          Help");
         Console.WriteLine("  l|label [value] Change label filter (no arg clears)");
         Console.WriteLine("  q|quit          Quit");
         Console.WriteLine("  r|reload        Reload settings from Azure");
         Console.WriteLine("  s|save          Save all changes");
-        Console.WriteLine("  u|undo <n>      Undo local change for n");
+        Console.WriteLine("  u|undo <n> [m]|all  Undo selection or all pending changes");
         Console.WriteLine();
     }
 
@@ -80,6 +352,15 @@ internal class Program
                 case "--label":
                     if (i + 1 < args.Length) { opts.Label = args[++i]; }
                     break;
+                case "--endpoint":
+                    if (i + 1 < args.Length) { opts.Endpoint = args[++i]; }
+                    break;
+                case "--tenant":
+                    if (i + 1 < args.Length) { opts.TenantId = args[++i]; }
+                    break;
+                case "--auth":
+                    if (i + 1 < args.Length) { opts.Auth = args[++i].ToLowerInvariant(); }
+                    break;
                 case "-h":
                 case "--help":
                     opts.ShowHelp = true;
@@ -94,6 +375,9 @@ internal class Program
         public string? Prefix { get; set; }
         public string? Label { get; set; }
         public bool ShowHelp { get; set; }
+        public string? Endpoint { get; set; }
+        public string? TenantId { get; set; }
+        public string? Auth { get; set; } // device|browser|cli|vscode|auto
     }
 }
 
@@ -117,12 +401,16 @@ internal sealed class EditorApp
     private readonly string _prefix;
     private string? _label;
     private readonly List<Item> _items = new();
+    private readonly Func<Task>? _whoAmI;
+    private readonly string _authModeDesc;
 
-    public EditorApp(ConfigurationClient client, string prefix, string? label)
+    public EditorApp(ConfigurationClient client, string prefix, string? label, Func<Task>? whoAmI = null, string authModeDesc = "")
     {
         _client = client;
         _prefix = prefix;
         _label = label;
+        _whoAmI = whoAmI;
+        _authModeDesc = authModeDesc;
     }
 
     public async Task LoadAsync()
@@ -234,6 +522,10 @@ internal sealed class EditorApp
                 case "add":
                     Add();
                     break;
+                case "c":
+                case "copy":
+                    await CopyAsync(parts.Skip(1).ToArray());
+                    break;
                 case "d":
                 case "delete":
                     Delete(parts.Skip(1).ToArray());
@@ -257,11 +549,40 @@ internal sealed class EditorApp
                 case "q":
                 case "quit":
                 case "exit":
-                    return;
+                    if (HasPendingChanges(out var newCount, out var modCount, out var delCount))
+                    {
+                        Console.WriteLine($"You have unsaved changes: +{newCount} new, *{modCount} modified, -{delCount} deleted.");
+                        Console.WriteLine("Do you want to save before exiting?");
+                        Console.WriteLine("  S) Save and quit");
+                        Console.WriteLine("  Q) Quit without saving");
+                        Console.WriteLine("  C) Cancel");
+                        while (true)
+                        {
+                            Console.Write("> ");
+                            var choice = (Console.ReadLine() ?? string.Empty).Trim().ToLowerInvariant();
+                            if (choice.Length == 0) continue;
+                            var ch = choice[0];
+                            if (ch == 'c') break; // cancel quit
+                            if (ch == 's') { await SaveAsync(pause: false); return; }
+                            if (ch == 'q') { return; }
+                            Console.WriteLine("Please enter S, Q, or C.");
+                        }
+                        break;
+                    }
+                    else
+                    {
+                        return;
+                    }
                 case "h":
                 case "?":
                 case "help":
                     ShowHelp();
+                    break;
+                case "whoami":
+                case "w":
+                    if (_whoAmI is not null) await _whoAmI(); else Console.WriteLine("whoami not available in this mode.");
+                    Console.WriteLine("Press Enter to continue...");
+                    Console.ReadLine();
                     break;
                 default:
                     Console.WriteLine("Unknown command. Type 'h' for help.");
@@ -286,7 +607,7 @@ internal sealed class EditorApp
     {
         Console.Clear();
         Console.WriteLine($"Azure App Configuration Editor");
-        Console.WriteLine($"Prefix: '{_prefix}'   Label filter: '{_label ?? "(any)"}'");
+        Console.WriteLine($"Prefix: '{_prefix}'   Label filter: '{_label ?? "(any)"}'   Auth: {_authModeDesc}");
 
         var width = GetWindowWidth();
         bool includeValue = width >= 60; // minimal width for value column
@@ -325,7 +646,7 @@ internal sealed class EditorApp
         }
 
         Console.WriteLine();
-        Console.WriteLine("Commands: a|add, d|delete <n>, e|edit <n>, h|help, l|label [value], q|quit, r|reload, s|save, u|undo <n>");
+        Console.WriteLine("Commands: a|add, c|copy <n> [m], d|delete <n> [m], e|edit <n>, h|help, l|label [value], q|quit, r|reload, s|save, u|undo <n> [m]|all, w|whoami");
     }
 
     private void ShowHelp()
@@ -334,14 +655,16 @@ internal sealed class EditorApp
         Console.WriteLine("Help - Commands");
         Console.WriteLine(new string('-', 40));
         Console.WriteLine("a|add            Add a new key under the current prefix");
-        Console.WriteLine("d|delete <n>     Delete item n");
+        Console.WriteLine("c|copy <n> [m]   Copy rows n..m to another label and switch");
+        Console.WriteLine("d|delete <n> [m] Delete items n..m");
         Console.WriteLine("e|edit <n>       Edit value of item number n");
         Console.WriteLine("h|help|?         Show this help");
         Console.WriteLine("l|label [value]  Change label filter (no arg clears)");
         Console.WriteLine("q|quit           Quit the editor");
         Console.WriteLine("r|reload         Reload settings from Azure (discards local edits)");
         Console.WriteLine("s|save           Save all pending changes to Azure");
-        Console.WriteLine("u|undo <n>       Undo local changes for item n");
+        Console.WriteLine("u|undo <n> [m]|all  Undo local changes for rows n..m, or 'all' to undo everything");
+        Console.WriteLine("w|whoami         Show current identity and endpoint");
         Console.WriteLine();
         Console.WriteLine("Press Enter to return to the list...");
         Console.ReadLine();
@@ -408,26 +731,222 @@ internal sealed class EditorApp
         _items.Sort(CompareItems);
     }
 
+    private async Task CopyAsync(string[] args)
+    {
+        if (_label is null)
+        {
+            Console.WriteLine("Copy requires an active label filter. Set one with l|label <value> first.");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+            return;
+        }
+
+        if (args.Length == 0)
+        {
+            Console.WriteLine("Usage: c|copy <n> [m]  (copies rows n..m)");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+            return;
+        }
+
+        if (!int.TryParse(args[0], out int start)) { Console.WriteLine("First argument must be an index."); Console.ReadLine(); return; }
+        int end = start;
+        if (args.Length >= 2 && int.TryParse(args[1], out int endParsed)) end = endParsed;
+        if (start < 1 || end < 1 || start > _items.Count || end > _items.Count)
+        {
+            Console.WriteLine("Index out of range."); Console.ReadLine(); return;
+        }
+        if (start > end) (start, end) = (end, start);
+
+        var selection = new List<(string ShortKey, string Value)>();
+        for (int i = start - 1; i <= end - 1; i++)
+        {
+            var it = _items[i];
+            if (it.State == ItemState.Deleted) continue;
+            var val = it.Value ?? string.Empty;
+            selection.Add((it.ShortKey, val));
+        }
+        if (selection.Count == 0)
+        {
+            Console.WriteLine("Nothing to copy in the selected range."); Console.ReadLine(); return;
+        }
+
+        Console.WriteLine("Copy to label (empty for none):");
+        Console.Write("> ");
+        var target = Console.ReadLine();
+        string? targetLabel = string.IsNullOrWhiteSpace(target) ? null : target!.Trim();
+
+        // Switch to target label and load items for that label
+        _label = targetLabel;
+        await LoadAsync();
+
+        int created = 0, updated = 0;
+        foreach (var (shortKey, value) in selection)
+        {
+            var existing = _items.FirstOrDefault(x => x.ShortKey.Equals(shortKey, StringComparison.Ordinal));
+            if (existing is null)
+            {
+                _items.Add(new Item
+                {
+                    FullKey = _prefix + shortKey,
+                    ShortKey = shortKey,
+                    Label = targetLabel,
+                    OriginalValue = null,
+                    Value = value,
+                    State = ItemState.New
+                });
+                created++;
+            }
+            else
+            {
+                existing.Value = value;
+                if (existing.OriginalValue == value)
+                    existing.State = ItemState.Unchanged;
+                else if (!existing.IsNew)
+                    existing.State = ItemState.Modified;
+                updated++;
+            }
+        }
+
+        _items.Sort(CompareItems);
+        Console.WriteLine($"Copied {selection.Count} item(s): {created} created, {updated} updated under label [{targetLabel ?? "(none)"}].");
+        Console.WriteLine("Press Enter to continue...");
+        Console.ReadLine();
+    }
+
     private void Delete(string[] args)
     {
-        if (!TryParseIndex(args, out var idx)) return;
-        var item = _items[idx];
-        if (item.IsNew)
+        if (args.Length == 0)
         {
-            _items.RemoveAt(idx);
+            Console.WriteLine("Usage: d|delete <n> [m]  (deletes rows n..m)");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+            return;
         }
-        else
+
+        if (!int.TryParse(args[0], out int start)) { Console.WriteLine("First argument must be an index."); Console.ReadLine(); return; }
+        int end = start;
+        if (args.Length >= 2 && int.TryParse(args[1], out int endParsed)) end = endParsed;
+        if (start < 1 || end < 1 || start > _items.Count || end > _items.Count)
         {
-            item.State = ItemState.Deleted;
+            Console.WriteLine("Index out of range."); Console.ReadLine(); return;
         }
+        if (start > end) (start, end) = (end, start);
+
+        // Build index list and process from highest to lowest to avoid shifting
+        int removedNew = 0, markedExisting = 0;
+        var indices = Enumerable.Range(start - 1, end - start + 1).OrderByDescending(i => i).ToList();
+        foreach (var idx in indices)
+        {
+            var item = _items[idx];
+            if (item.IsNew)
+            {
+                _items.RemoveAt(idx);
+                removedNew++;
+            }
+            else
+            {
+                item.State = ItemState.Deleted;
+                markedExisting++;
+            }
+        }
+
+        Console.WriteLine($"Deleted selection: removed {removedNew} new item(s), marked {markedExisting} existing item(s) for deletion.");
+        Console.WriteLine("Press Enter to continue...");
+        Console.ReadLine();
     }
 
     private void Undo(string[] args)
     {
-        if (!TryParseIndex(args, out var idx)) return;
-        var item = _items[idx];
-        item.Value = item.OriginalValue;
-        item.State = ItemState.Unchanged;
+        if (args.Length == 0)
+        {
+            Console.WriteLine("Usage: u|undo <n> [m]  (undos rows n..m)");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+            return;
+        }
+
+        if (args.Length == 1 && string.Equals(args[0], "all", StringComparison.OrdinalIgnoreCase))
+        {
+            UndoAll();
+            return;
+        }
+
+        if (!int.TryParse(args[0], out int start)) { Console.WriteLine("First argument must be an index or 'all'."); Console.ReadLine(); return; }
+        int end = start;
+        if (args.Length >= 2 && int.TryParse(args[1], out int endParsed)) end = endParsed;
+        if (start < 1 || end < 1 || start > _items.Count || end > _items.Count)
+        {
+            Console.WriteLine("Index out of range."); Console.ReadLine(); return;
+        }
+        if (start > end) (start, end) = (end, start);
+
+        int removedNew = 0, restored = 0, untouched = 0;
+        // Process descending indices if removal may happen
+        var indices = Enumerable.Range(start - 1, end - start + 1).OrderByDescending(i => i).ToList();
+        foreach (var idx in indices)
+        {
+            if (idx < 0 || idx >= _items.Count) { continue; }
+            var item = _items[idx];
+            if (item.IsNew)
+            {
+                _items.RemoveAt(idx);
+                removedNew++;
+            }
+            else if (item.State == ItemState.Deleted)
+            {
+                item.State = ItemState.Unchanged;
+                restored++;
+            }
+            else if (item.State == ItemState.Modified)
+            {
+                item.Value = item.OriginalValue;
+                item.State = ItemState.Unchanged;
+                restored++;
+            }
+            else
+            {
+                untouched++;
+            }
+        }
+
+        Console.WriteLine($"Undo selection: removed {removedNew} new item(s), restored {restored} item(s), untouched {untouched}.");
+        Console.WriteLine("Press Enter to continue...");
+        Console.ReadLine();
+    }
+
+    private void UndoAll()
+    {
+        int removedNew = 0, restored = 0, untouched = 0;
+        // Iterate descending to safely remove new items
+        for (int idx = _items.Count - 1; idx >= 0; idx--)
+        {
+            var item = _items[idx];
+            if (item.IsNew)
+            {
+                _items.RemoveAt(idx);
+                removedNew++;
+            }
+            else if (item.State == ItemState.Deleted)
+            {
+                item.State = ItemState.Unchanged;
+                restored++;
+            }
+            else if (item.State == ItemState.Modified)
+            {
+                item.Value = item.OriginalValue;
+                item.State = ItemState.Unchanged;
+                restored++;
+            }
+            else
+            {
+                untouched++;
+            }
+        }
+
+        Console.WriteLine($"Undo all: removed {removedNew} new item(s), restored {restored} item(s), untouched {untouched}.");
+        Console.WriteLine("Press Enter to continue...");
+        Console.ReadLine();
     }
 
     private bool TryParseIndex(string[] args, out int idx)
@@ -463,7 +982,7 @@ internal sealed class EditorApp
         await LoadAsync();
     }
 
-    private async Task SaveAsync()
+    private async Task SaveAsync(bool pause = true)
     {
         Console.WriteLine("Saving changes...");
         int changes = 0;
@@ -501,8 +1020,11 @@ internal sealed class EditorApp
         }
 
         Console.WriteLine(changes == 0 ? "No changes to save." : $"Saved {changes} change(s).");
-        Console.WriteLine("Press Enter to continue...");
-        Console.ReadLine();
+        if (pause)
+        {
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+        }
     }
 
     private static string ReadLineWithInitial(string initial)
@@ -623,6 +1145,16 @@ internal sealed class EditorApp
         if (t.Length < width) return t.PadRight(width);
         return t;
     }
+
+    private bool HasPendingChanges(out int newCount, out int modCount, out int delCount)
+    {
+        newCount = _items.Count(i => i.State == ItemState.New);
+        modCount = _items.Count(i => i.State == ItemState.Modified);
+        delCount = _items.Count(i => i.State == ItemState.Deleted);
+        return (newCount + modCount + delCount) > 0;
+    }
+
+    
 
     private static int CompareItems(Item a, Item b)
     {

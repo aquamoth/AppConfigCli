@@ -5,9 +5,9 @@ Keyboard-first, cross-platform editor for Azure App Configuration sections, buil
 ## Requirements
 
 - .NET 9 SDK
-- Azure App Configuration connection string
+- Azure App Configuration connection string, or an endpoint + Azure login
 
-Set the connection string in your environment:
+Option A: Connection string auth (simplest)
 
 Linux/macOS (bash/zsh):
 ```bash
@@ -19,6 +19,26 @@ Windows (PowerShell):
 ```powershell
 $env:APP_CONFIG_CONNECTION_STRING = "Endpoint=...;Id=...;Secret=..."
 $env:APP_CONFIG_LABEL = "dev"   # optional
+```
+
+Option B: Azure AD auth (no connection string)
+
+- If you don’t set an endpoint, the tool will list your available App Configuration stores via Azure Resource Manager and let you pick one.
+- Alternatively, set `APP_CONFIG_ENDPOINT` directly.
+- Sign in via browser or device code when prompted
+  - Your identity must be granted data-plane access on the App Configuration resource.
+    Assign the built-in role "App Configuration Data Reader" (read) or "App Configuration Data Owner" (read/write).
+  - WSL/headless Linux: the tool prefers Device Code auth if a browser cannot be opened. You’ll see a URL and a code to enter on any device.
+    To enable browser launch in WSL, install `wslu` (for `wslview`) or ensure `xdg-open` works.
+
+Linux/macOS (bash/zsh):
+```bash
+export APP_CONFIG_ENDPOINT="https://<name>.azconfig.io"
+```
+
+Windows (PowerShell):
+```powershell
+$env:APP_CONFIG_ENDPOINT = "https://<name>.azconfig.io"
 ```
 
 ## Build and Run
@@ -45,6 +65,9 @@ make run prefix=app:settings: label=dev
 
 - `--prefix <value>`: Required. Key prefix (section) to edit.
 - `--label <value>`: Optional. Azure App Config label filter.
+- `--endpoint <url>`: Optional. Azure App Configuration endpoint (used for AAD auth).
+- `--tenant <guid>`: Optional. Entra ID tenant ID to sign into (AAD auth).
+- `--auth <mode>`: Optional. Auth method: `auto` (default), `device`, `browser`, `cli`, or `vscode`.
 
 Editor commands (no mouse required):
 
@@ -55,6 +78,7 @@ Editor commands (no mouse required):
 - `s`: Save all changes to Azure
 - `q`: Quit without saving
 - `h`: Help
+- `w`: WhoAmI (prints current identity and endpoint)
 
 Legend: `*` modified, `+` new, `-` delete pending, ` ` unchanged
 
@@ -66,4 +90,6 @@ Legend: `*` modified, `+` new, `-` delete pending, ` ` unchanged
 ## Implementation Notes
 
 - Uses `Azure.Data.AppConfiguration` with a connection string for simple, cross-platform auth.
+- If `APP_CONFIG_CONNECTION_STRING` is not set, falls back to Azure AD auth against `APP_CONFIG_ENDPOINT` using chained credentials (Interactive Browser → Device Code → Azure CLI → VS Code).
+- Azure RBAC is required for AAD auth: grant your user/service principal "App Configuration Data Reader" or "App Configuration Data Owner" on the App Configuration resource.
 - Save performs upsert for new/changed keys and delete for deletions; other keys under the same prefix are untouched.
