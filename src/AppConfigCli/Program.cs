@@ -113,7 +113,7 @@ internal sealed class EditorApp
 {
     private readonly ConfigurationClient _client;
     private readonly string _prefix;
-    private readonly string? _label;
+    private string? _label;
     private readonly List<Item> _items = new();
 
     public EditorApp(ConfigurationClient client, string prefix, string? label)
@@ -174,6 +174,9 @@ internal sealed class EditorApp
                 case "r":
                     Revert(parts.Skip(1).ToArray());
                     break;
+                case "label":
+                    await ChangeLabelAsync(parts.Skip(1).ToArray());
+                    break;
                 case "s":
                     await SaveAsync();
                     break;
@@ -233,7 +236,7 @@ internal sealed class EditorApp
         }
 
         Console.WriteLine();
-        Console.WriteLine("Commands: e <n>, a, d <n>, r <n>, s, q, h");
+        Console.WriteLine("Commands: e <n>, a, d <n>, r <n>, label <value|clear>, s, q, h");
     }
 
     private void ShowHelp()
@@ -245,6 +248,7 @@ internal sealed class EditorApp
         Console.WriteLine("a      Add a new key under the current prefix");
         Console.WriteLine("d <n>  Delete item n (asks for 'yes' confirmation)");
         Console.WriteLine("r <n>  Revert local changes for item n");
+        Console.WriteLine("label <value|clear>  Change label filter (use 'clear' for any label)");
         Console.WriteLine("s      Save all pending changes to Azure");
         Console.WriteLine("q      Quit the editor");
         Console.WriteLine("h/?    Show this help");
@@ -331,6 +335,29 @@ internal sealed class EditorApp
         }
         idx = n;
         return true;
+    }
+
+    private async Task ChangeLabelAsync(string[] args)
+    {
+        if (args.Length == 0)
+        {
+            Console.WriteLine($"Current label filter: '{_label ?? "(any)"}'");
+            Console.WriteLine("Usage: label <value>|clear");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+            return;
+        }
+
+        var newLabelArg = string.Join(' ', args).Trim();
+        string? newLabel = newLabelArg.Length == 0 ? null : newLabelArg;
+        if (string.Equals(newLabelArg, "clear", StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(newLabelArg, "any", StringComparison.OrdinalIgnoreCase))
+        {
+            newLabel = null;
+        }
+
+        _label = newLabel;
+        await LoadAsync();
     }
 
     private async Task SaveAsync()
