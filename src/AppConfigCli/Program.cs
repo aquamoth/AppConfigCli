@@ -181,7 +181,7 @@ internal sealed class EditorApp
                     return;
                 case "h":
                 case "?":
-                    PrintHelpInline();
+                    ShowHelp();
                     break;
                 default:
                     Console.WriteLine("Unknown command. Type 'h' for help.");
@@ -224,9 +224,21 @@ internal sealed class EditorApp
         Console.WriteLine("Commands: e <n>, a, d <n>, r <n>, s, q, h");
     }
 
-    private void PrintHelpInline()
+    private void ShowHelp()
     {
-        Console.WriteLine("e <n>: edit value; a: add; d <n>: delete; r <n>: revert; s: save; q: quit");
+        Console.WriteLine();
+        Console.WriteLine("Help - Commands");
+        Console.WriteLine(new string('-', 40));
+        Console.WriteLine("e <n>  Edit value of item number n");
+        Console.WriteLine("a      Add a new key under the current prefix");
+        Console.WriteLine("d <n>  Delete item n (asks for 'yes' confirmation)");
+        Console.WriteLine("r <n>  Revert local changes for item n");
+        Console.WriteLine("s      Save all pending changes to Azure");
+        Console.WriteLine("q      Quit the editor");
+        Console.WriteLine("h/?    Show this help");
+        Console.WriteLine();
+        Console.WriteLine("Press Enter to return to the list...");
+        Console.ReadLine();
     }
 
     private void Edit(string[] args)
