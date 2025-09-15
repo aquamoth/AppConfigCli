@@ -56,7 +56,7 @@ internal class Program
         Console.WriteLine();
         Console.WriteLine("Commands inside editor:");
         Console.WriteLine("  a|add           Add new key under prefix");
-        Console.WriteLine("  d|delete <n>    Delete item n (confirm)");
+        Console.WriteLine("  d|delete <n>    Delete item n");
         Console.WriteLine("  e|edit <n>      Edit item n");
         Console.WriteLine("  h|help          Help");
         Console.WriteLine("  l|label [value] Change label filter (no arg clears)");
@@ -260,7 +260,7 @@ internal sealed class EditorApp
         Console.WriteLine("Help - Commands");
         Console.WriteLine(new string('-', 40));
         Console.WriteLine("a|add            Add a new key under the current prefix");
-        Console.WriteLine("d|delete <n>     Delete item n (asks for 'yes' confirmation)");
+        Console.WriteLine("d|delete <n>     Delete item n");
         Console.WriteLine("e|edit <n>       Edit value of item number n");
         Console.WriteLine("h|help|?         Show this help");
         Console.WriteLine("l|label [value]  Change label filter (no arg clears)");
@@ -338,11 +338,14 @@ internal sealed class EditorApp
     {
         if (!TryParseIndex(args, out var idx)) return;
         var item = _items[idx];
-        Console.WriteLine($"Delete '{item.ShortKey}'? Type 'yes' to confirm:");
-        Console.Write("> ");
-        var conf = Console.ReadLine();
-        if (!string.Equals(conf, "yes", StringComparison.OrdinalIgnoreCase)) return;
-        item.State = ItemState.Deleted;
+        if (item.IsNew)
+        {
+            _items.RemoveAt(idx);
+        }
+        else
+        {
+            item.State = ItemState.Deleted;
+        }
     }
 
     private void Undo(string[] args)
