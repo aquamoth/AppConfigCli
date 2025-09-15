@@ -327,6 +327,7 @@ internal class Program
         Console.WriteLine();
         Console.WriteLine("Commands inside editor:");
         Console.WriteLine("  a|add           Add new key under prefix");
+        Console.WriteLine("  c|copy <n> [m]  Copy rows n..m to another label and switch");
         Console.WriteLine("  d|delete <n>    Delete item n");
         Console.WriteLine("  e|edit <n>      Edit item n");
         Console.WriteLine("  h|help          Help");
@@ -521,6 +522,10 @@ internal sealed class EditorApp
                 case "add":
                     Add();
                     break;
+                case "c":
+                case "copy":
+                    await CopyAsync(parts.Skip(1).ToArray());
+                    break;
                 case "d":
                 case "delete":
                     Delete(parts.Skip(1).ToArray());
@@ -618,7 +623,7 @@ internal sealed class EditorApp
         }
 
         Console.WriteLine();
-        Console.WriteLine("Commands: a|add, d|delete <n>, e|edit <n>, h|help, l|label [value], q|quit, r|reload, s|save, u|undo <n>, w|whoami");
+        Console.WriteLine("Commands: a|add, c|copy <n> [m], d|delete <n>, e|edit <n>, h|help, l|label [value], q|quit, r|reload, s|save, u|undo <n>, w|whoami");
     }
 
     private void ShowHelp()
@@ -627,6 +632,7 @@ internal sealed class EditorApp
         Console.WriteLine("Help - Commands");
         Console.WriteLine(new string('-', 40));
         Console.WriteLine("a|add            Add a new key under the current prefix");
+        Console.WriteLine("c|copy <n> [m]   Copy rows n..m to another label and switch");
         Console.WriteLine("d|delete <n>     Delete item n");
         Console.WriteLine("e|edit <n>       Edit value of item number n");
         Console.WriteLine("h|help|?         Show this help");
@@ -700,6 +706,89 @@ internal sealed class EditorApp
             State = ItemState.New
         });
         _items.Sort(CompareItems);
+    }
+
+    private async Task CopyAsync(string[] args)
+    {
+        if (_label is null)
+        {
+            Console.WriteLine("Copy requires an active label filter. Set one with l|label <value> first.");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+            return;
+        }
+
+        if (args.Length == 0)
+        {
+            Console.WriteLine("Usage: c|copy <n> [m]  (copies rows n..m)");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+            return;
+        }
+
+        if (!int.TryParse(args[0], out int start)) { Console.WriteLine("First argument must be an index."); Console.ReadLine(); return; }
+        int end = start;
+        if (args.Length >= 2 && int.TryParse(args[1], out int endParsed)) end = endParsed;
+        if (start < 1 || end < 1 || start > _items.Count || end > _items.Count)
+        {
+            Console.WriteLine("Index out of range."); Console.ReadLine(); return;
+        }
+        if (start > end) (start, end) = (end, start);
+
+        var selection = new List<(string ShortKey, string Value)>();
+        for (int i = start - 1; i <= end - 1; i++)
+        {
+            var it = _items[i];
+            if (it.State == ItemState.Deleted) continue;
+            var val = it.Value ?? string.Empty;
+            selection.Add((it.ShortKey, val));
+        }
+        if (selection.Count == 0)
+        {
+            Console.WriteLine("Nothing to copy in the selected range."); Console.ReadLine(); return;
+        }
+
+        Console.WriteLine("Copy to label (empty for none):");
+        Console.Write("> ");
+        var target = Console.ReadLine();
+        string? targetLabel = string.IsNullOrWhiteSpace(target) ? null : target!.Trim();
+
+        // Switch to target label and load items for that label
+        _label = targetLabel;
+        await LoadAsync();
+
+        int created = 0, updated = 0;
+        foreach (var (shortKey, value) in selection)
+        {
+            var existing = _items.FirstOrDefault(x => x.ShortKey.Equals(shortKey, StringComparison.Ordinal));
+            if (existing is null)
+            {
+                _items.Add(new Item
+                {
+                    FullKey = _prefix + shortKey,
+                    ShortKey = shortKey,
+                    Label = targetLabel,
+                    OriginalValue = null,
+                    Value = value,
+                    State = ItemState.New
+                });
+                created++;
+            }
+            else
+            {
+                existing.Value = value;
+                if (existing.OriginalValue == value)
+                    existing.State = ItemState.Unchanged;
+                else if (!existing.IsNew)
+                    existing.State = ItemState.Modified;
+                updated++;
+            }
+        }
+
+        _items.Sort(CompareItems);
+        Console.WriteLine($"Copied {selection.Count} item(s): {created} created, {updated} updated under label [{targetLabel ?? "(none)"}].");
+        Console.WriteLine("Press Enter to continue...");
+        Console.ReadLine();
     }
 
     private void Delete(string[] args)
