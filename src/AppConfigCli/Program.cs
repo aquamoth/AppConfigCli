@@ -195,12 +195,17 @@ internal sealed class EditorApp
         Console.Clear();
         Console.WriteLine($"Azure App Configuration Editor");
         Console.WriteLine($"Prefix: '{_prefix}'   Label filter: '{_label ?? "(any)"}'");
-        Console.WriteLine(new string('-', 100));
-        Console.WriteLine("Idx  S  Key                                   Label         Value");
-        Console.WriteLine(new string('-', 100));
 
-        const int keyWidth = 35;
-        const int labelWidth = 13;
+        var width = GetWindowWidth();
+        bool includeValue = width >= 60; // minimal width for value column
+        ComputeLayout(width, includeValue, out var keyWidth, out var labelWidth, out var valueWidth);
+
+        Console.WriteLine(new string('-', width));
+        if (includeValue)
+            Console.WriteLine($"Idx  S  {PadColumn("Key", keyWidth)}  {PadColumn("Label", labelWidth)}  Value");
+        else
+            Console.WriteLine($"Idx  S  {PadColumn("Key", keyWidth)}  {PadColumn("Label", labelWidth)}");
+        Console.WriteLine(new string('-', width));
 
         for (int i = 0; i < _items.Count; i++)
         {
@@ -215,9 +220,16 @@ internal sealed class EditorApp
             var keyDisp = TruncateFixed(item.ShortKey, keyWidth);
             var labelText = item.Label ?? "(none)";
             var labelDisp = TruncateFixed(labelText, labelWidth);
-            var val = (item.Value ?? string.Empty).Replace('\n', ' ');
-            if (val.Length > 40) val = val[..39] + "…";
-            Console.WriteLine($"{i + 1,3}  {s}  {keyDisp,-35}  {labelDisp,-13}  {val}");
+            if (valueWidth > 0)
+            {
+                var valFull = (item.Value ?? string.Empty).Replace('\n', ' ');
+                var val = TruncateFixed(valFull, valueWidth);
+                Console.WriteLine($"{i + 1,3}  {s}  {PadColumn(keyDisp, keyWidth)}  {PadColumn(labelDisp, labelWidth)}  {val}");
+            }
+            else
+            {
+                Console.WriteLine($"{i + 1,3}  {s}  {PadColumn(keyDisp, keyWidth)}  {PadColumn(labelDisp, labelWidth)}");
+            }
         }
 
         Console.WriteLine();
@@ -439,5 +451,84 @@ internal sealed class EditorApp
         if (s.Length <= width) return s;
         if (width <= 1) return new string('…', Math.Max(0, width));
         return s[..(width - 1)] + "…";
+    }
+
+    private static string PadColumn(string text, int width)
+    {
+        var t = TruncateFixed(text, width);
+        if (t.Length < width) return t.PadRight(width);
+        return t;
+    }
+
+    private static int GetWindowWidth()
+    {
+        try
+        {
+            var w = Console.WindowWidth;
+            // Allow narrow widths; we handle hiding columns below thresholds
+            return Math.Max(20, Math.Min(w, 240));
+        }
+        catch
+        {
+            return 100;
+        }
+    }
+
+    private void ComputeLayout(int totalWidth, bool includeValue, out int keyWidth, out int labelWidth, out int valueWidth)
+    {
+        const int minKey = 15;
+        const int maxKey = 80;
+        const int minLabel = 8;
+        const int maxLabel = 25;
+        const int minValue = 10;
+
+        // Determine label width from data (clamped)
+        var labelMax = Math.Max(6, _items.Select(i => (i.Label ?? "(none)").Length).DefaultIfEmpty(6).Max());
+        labelWidth = Math.Clamp(labelMax, minLabel, maxLabel);
+
+        // Fixed non-column characters in a row
+        int fixedChars = includeValue ? 12 : 10;
+
+        // Available space for key + label (+ value)
+        int available = totalWidth - (fixedChars + labelWidth);
+
+        int longestKey = _items.Select(i => i.ShortKey.Length).DefaultIfEmpty(minKey).Max();
+
+        if (includeValue)
+        {
+            if (available < minKey + minValue)
+            {
+                // Squeeze label when very narrow
+                int deficit = (minKey + minValue) - available;
+                labelWidth = Math.Max(minLabel, labelWidth - deficit);
+                available = totalWidth - (fixedChars + labelWidth);
+            }
+
+            int neededKey = Math.Clamp(longestKey, minKey, Math.Min(maxKey, available - minValue));
+            keyWidth = neededKey;
+            valueWidth = available - keyWidth;
+
+            if (valueWidth < minValue)
+            {
+                int shortage = minValue - valueWidth;
+                keyWidth = Math.Max(minKey, keyWidth - shortage);
+                valueWidth = available - keyWidth;
+            }
+
+            keyWidth = Math.Max(minKey, keyWidth);
+            valueWidth = Math.Max(1, valueWidth);
+        }
+        else
+        {
+            if (available < minKey)
+            {
+                int deficit = minKey - available;
+                labelWidth = Math.Max(minLabel, labelWidth - deficit);
+                available = totalWidth - (fixedChars + labelWidth);
+            }
+
+            keyWidth = Math.Clamp(longestKey, minKey, Math.Min(maxKey, available));
+            valueWidth = 0;
+        }
     }
 }
