@@ -115,9 +115,43 @@ internal class Program
             }
         });
 
-        // Prefer interactive and device code to give the user a chance to choose the right identity.
-        // CLI/VS Code fallbacks are last.
-        return new ChainedTokenCredential(browser, device, cli, vsc);
+        // Choose order based on environment. In WSL or headless Linux (no DISPLAY), prefer device code first,
+        // because Interactive Browser cannot launch a browser reliably.
+        bool isWsl = IsWsl();
+        bool hasDisplay = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY"));
+        if (isWsl || (!OperatingSystem.IsWindows() && !hasDisplay))
+        {
+            return new ChainedTokenCredential(device, browser, cli, vsc);
+        }
+        else
+        {
+            // On Windows/macOS with a GUI, try browser first, then device code.
+            return new ChainedTokenCredential(browser, device, cli, vsc);
+        }
+    }
+
+    private static bool IsWsl()
+    {
+        try
+        {
+            if (!OperatingSystem.IsLinux()) return false;
+            var wslEnv = Environment.GetEnvironmentVariable("WSL_DISTRO_NAME");
+            if (!string.IsNullOrEmpty(wslEnv)) return true;
+            string path1 = "/proc/sys/kernel/osrelease";
+            if (File.Exists(path1))
+            {
+                var txt = File.ReadAllText(path1);
+                if (txt.Contains("microsoft", StringComparison.OrdinalIgnoreCase)) return true;
+            }
+            string path2 = "/proc/version";
+            if (File.Exists(path2))
+            {
+                var txt = File.ReadAllText(path2);
+                if (txt.Contains("microsoft", StringComparison.OrdinalIgnoreCase)) return true;
+            }
+        }
+        catch { }
+        return false;
     }
 
     private static async Task WhoAmIAsync(TokenCredential credential, Uri endpoint)

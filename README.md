@@ -28,6 +28,8 @@ Option B: Azure AD auth (no connection string)
 - Sign in via browser or device code when prompted
   - Your identity must be granted data-plane access on the App Configuration resource.
     Assign the built-in role "App Configuration Data Reader" (read) or "App Configuration Data Owner" (read/write).
+  - WSL/headless Linux: the tool prefers Device Code auth if a browser cannot be opened. You’ll see a URL and a code to enter on any device.
+    To enable browser launch in WSL, install `wslu` (for `wslview`) or ensure `xdg-open` works.
 
 Linux/macOS (bash/zsh):
 ```bash
