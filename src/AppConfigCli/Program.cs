@@ -127,27 +127,89 @@ internal sealed class EditorApp
 
     public async Task LoadAsync()
     {
-        _items.Clear();
+        // Capture local snapshot to reapply after fetch
+        var local = _items.ToDictionary(i => MakeKey(i.FullKey, i.Label), i => new
+        {
+            i.State,
+            i.Value,
+            i.OriginalValue
+        });
+
+        var fresh = new List<Item>();
+
         var selector = new SettingSelector
         {
             KeyFilter = _prefix + "*",
             LabelFilter = _label
         };
 
+        var seen = new HashSet<string>(StringComparer.Ordinal);
         await foreach (var s in _client.GetConfigurationSettingsAsync(selector))
         {
-            var shortKey = s.Key.StartsWith(_prefix, StringComparison.Ordinal) ? s.Key[_prefix.Length..] : s.Key;
-            _items.Add(new Item
+            var fullKey = s.Key;
+            var label = s.Label;
+            var shortKey = fullKey.StartsWith(_prefix, StringComparison.Ordinal) ? fullKey[_prefix.Length..] : fullKey;
+            var key = MakeKey(fullKey, label);
+            seen.Add(key);
+
+            if (local.TryGetValue(key, out var l))
             {
-                FullKey = s.Key,
-                ShortKey = shortKey,
-                Label = s.Label,
-                OriginalValue = s.Value,
-                Value = s.Value,
-                State = ItemState.Unchanged
-            });
+                if (l.State == ItemState.Deleted)
+                {
+                    fresh.Add(new Item { FullKey = fullKey, ShortKey = shortKey, Label = label, OriginalValue = s.Value, Value = s.Value, State = ItemState.Deleted });
+                }
+                else if (l.State == ItemState.New)
+                {
+                    var localVal = l.Value ?? string.Empty;
+                    var state = string.Equals(localVal, s.Value, StringComparison.Ordinal) ? ItemState.Unchanged : ItemState.Modified;
+                    fresh.Add(new Item { FullKey = fullKey, ShortKey = shortKey, Label = label, OriginalValue = s.Value, Value = localVal, State = state });
+                }
+                else if (l.State == ItemState.Modified)
+                {
+                    var localVal = l.Value ?? string.Empty;
+                    if (string.Equals(localVal, s.Value, StringComparison.Ordinal))
+                        fresh.Add(new Item { FullKey = fullKey, ShortKey = shortKey, Label = label, OriginalValue = s.Value, Value = s.Value, State = ItemState.Unchanged });
+                    else
+                        fresh.Add(new Item { FullKey = fullKey, ShortKey = shortKey, Label = label, OriginalValue = s.Value, Value = localVal, State = ItemState.Modified });
+                }
+                else
+                {
+                    fresh.Add(new Item { FullKey = fullKey, ShortKey = shortKey, Label = label, OriginalValue = s.Value, Value = s.Value, State = ItemState.Unchanged });
+                }
+            }
+            else
+            {
+                fresh.Add(new Item { FullKey = fullKey, ShortKey = shortKey, Label = label, OriginalValue = s.Value, Value = s.Value, State = ItemState.Unchanged });
+            }
         }
-        _items.Sort(CompareItems);
+
+        // Add locals missing on server
+        foreach (var kv in local)
+        {
+            if (seen.Contains(kv.Key)) continue;
+            SplitKey(kv.Key, out var fullKey, out var label);
+            var shortKey = fullKey.StartsWith(_prefix, StringComparison.Ordinal) ? fullKey[_prefix.Length..] : fullKey;
+            switch (kv.Value.State)
+            {
+                case ItemState.New:
+                    fresh.Add(new Item { FullKey = fullKey, ShortKey = shortKey, Label = label, OriginalValue = null, Value = kv.Value.Value, State = ItemState.New });
+                    break;
+                case ItemState.Modified:
+                    // Edited locally but deleted on server => treat as new
+                    fresh.Add(new Item { FullKey = fullKey, ShortKey = shortKey, Label = label, OriginalValue = null, Value = kv.Value.Value, State = ItemState.New });
+                    break;
+                case ItemState.Deleted:
+                    // Already gone on server, drop
+                    break;
+                default:
+                    // Unchanged but deleted server-side, drop
+                    break;
+            }
+        }
+
+        fresh.Sort(CompareItems);
+        _items.Clear();
+        _items.AddRange(fresh);
     }
 
     public async Task RunAsync()
@@ -206,6 +268,18 @@ internal sealed class EditorApp
                     break;
             }
         }
+    }
+
+    private static string MakeKey(string fullKey, string? label)
+        => fullKey + "\n" + (label ?? string.Empty);
+
+    private static void SplitKey(string composite, out string fullKey, out string? label)
+    {
+        var idx = composite.IndexOf('\n');
+        if (idx < 0) { fullKey = composite; label = null; return; }
+        fullKey = composite[..idx];
+        var rest = composite[(idx + 1)..];
+        label = rest.Length == 0 ? null : rest;
     }
 
     private void Render()
