@@ -378,23 +378,57 @@ internal sealed class EditorApp
     private static string ReadLineWithInitial(string initial)
     {
         var buffer = new StringBuilder(initial);
-        int cursor = buffer.Length;
+        int cursor = buffer.Length; // insertion index in buffer
         int startLeft = Console.CursorLeft;
         int startTop = Console.CursorTop;
+        int scrollStart = 0; // index in buffer where the viewport starts
+
+        // If there is effectively no room on this line, move to a fresh line
+        int initialAvail = Math.Max(0, Console.WindowWidth - startLeft - 1);
+        if (initialAvail < 10)
+        {
+            Console.WriteLine();
+            startLeft = 0;
+            startTop = Console.CursorTop;
+        }
 
         void Render()
         {
+            int winWidth;
+            try { winWidth = Console.WindowWidth; }
+            catch { winWidth = 80; }
+
+            int contentWidth = Math.Max(1, winWidth - startLeft - 1);
+
+            // Keep cursor within viewport
+            if (cursor < scrollStart) scrollStart = cursor;
+            if (cursor - scrollStart >= contentWidth) scrollStart = Math.Max(0, cursor - contentWidth + 1);
+
+            int end = Math.Min(buffer.Length, scrollStart + contentWidth);
+            string view = buffer.ToString(scrollStart, end - scrollStart);
+
+            // Show ellipsis if scrolled left/right
+            if (scrollStart > 0 && view.Length > 0)
+            {
+                view = '…' + (view.Length > 1 ? view[1..] : string.Empty);
+            }
+            if (end < buffer.Length && view.Length > 0)
+            {
+                view = (view.Length > 1 ? view[..^1] : string.Empty) + '…';
+            }
+
+            // Render view padded to the full content width to clear remnants
             Console.SetCursorPosition(startLeft, startTop);
-            var line = buffer.ToString();
-            // Render line and clear any trailing characters from prior render
-            Console.Write(line);
-            Console.Write(" \r"); // trailing space clears if previous render was longer
-            // Position cursor
-            Console.SetCursorPosition(startLeft + cursor, startTop);
+            Console.Write(view.PadRight(contentWidth));
+
+            // Place cursor within the view
+            int cursorCol = startLeft + Math.Min(cursor - scrollStart, contentWidth - 1);
+            int safeCol = Math.Min(Math.Max(0, winWidth - 1), Math.Max(0, cursorCol));
+            try { Console.SetCursorPosition(safeCol, startTop); } catch { }
         }
 
-        // Write initial
-        Console.Write(buffer.ToString());
+        // Initial render
+        Render();
 
         while (true)
         {
