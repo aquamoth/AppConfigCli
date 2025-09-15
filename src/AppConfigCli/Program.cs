@@ -42,23 +42,28 @@ internal class Program
         else
         {
             // Fallback to AAD auth via endpoint + interactive/device/browser auth
+            var tenantId = options.TenantId ?? Environment.GetEnvironmentVariable("AZURE_TENANT_ID");
+            var credential = BuildCredential(tenantId, options.Auth);
+
             var endpoint = options.Endpoint ?? Environment.GetEnvironmentVariable("APP_CONFIG_ENDPOINT");
             if (string.IsNullOrWhiteSpace(endpoint))
             {
-                Console.WriteLine("APP_CONFIG_CONNECTION_STRING not set.");
-                Console.WriteLine("Enter Azure App Configuration endpoint (e.g., https://<name>.azconfig.io):");
-                Console.Write("> ");
-                endpoint = Console.ReadLine();
+                Console.WriteLine("No endpoint provided. Discovering App Configuration stores via Azure…");
+                endpoint = await TrySelectEndpointAsync(credential);
                 if (string.IsNullOrWhiteSpace(endpoint))
                 {
-                    Console.Error.WriteLine("No endpoint provided. Exiting.");
-                    return 2;
+                    Console.WriteLine("Could not list stores or none found. Enter endpoint manually (e.g., https://<name>.azconfig.io):");
+                    Console.Write("> ");
+                    endpoint = Console.ReadLine();
+                    if (string.IsNullOrWhiteSpace(endpoint))
+                    {
+                        Console.Error.WriteLine("No endpoint provided. Exiting.");
+                        return 2;
+                    }
                 }
             }
 
-            var uri = new Uri(endpoint!);
-            var tenantId = options.TenantId ?? Environment.GetEnvironmentVariable("AZURE_TENANT_ID");
-            var credential = BuildCredential(tenantId, options.Auth);
+            var uri = NormalizeEndpoint(endpoint!);
             client = new ConfigurationClient(uri, credential);
             var authLabel = string.IsNullOrWhiteSpace(options.Auth) ? "auto" : options.Auth;
             authModeDesc = $"aad ({(tenantId ?? "default tenant")}, auth={authLabel})";
@@ -180,6 +185,109 @@ internal class Program
         {
             Console.WriteLine($"whoami failed: {ex.Message}");
         }
+    }
+
+    private static async Task<string?> TrySelectEndpointAsync(TokenCredential credential)
+    {
+        try
+        {
+            // Get ARM token
+            var token = await credential.GetTokenAsync(new TokenRequestContext(new[] { "https://management.azure.com/.default" }), default);
+            using var http = new HttpClient();
+            http.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", token.Token);
+
+            // List subscriptions
+            var subsResp = await http.GetAsync("https://management.azure.com/subscriptions?api-version=2020-01-01");
+            if (!subsResp.IsSuccessStatusCode)
+            {
+                return null;
+            }
+            using var subsDoc = JsonDocument.Parse(await subsResp.Content.ReadAsStringAsync());
+            var subs = new List<SubRef>();
+            if (subsDoc.RootElement.TryGetProperty("value", out var subsArr) && subsArr.ValueKind == JsonValueKind.Array)
+            {
+                foreach (var e in subsArr.EnumerateArray())
+                {
+                    subs.Add(new SubRef
+                    {
+                        Id = e.GetProperty("subscriptionId").GetString() ?? string.Empty,
+                        Name = e.TryGetProperty("displayName", out var dn) ? dn.GetString() ?? string.Empty : string.Empty
+                    });
+                }
+            }
+
+            var stores = new List<(string Name, string ResourceGroup, string Location, string Endpoint)>();
+            foreach (var sub in subs)
+            {
+                string subId = sub.Id;
+                var url = $"https://management.azure.com/subscriptions/{subId}/providers/Microsoft.AppConfiguration/configurationStores?api-version=2023-03-01";
+                var resp = await http.GetAsync(url);
+                if (!resp.IsSuccessStatusCode) continue;
+                using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync());
+                if (!doc.RootElement.TryGetProperty("value", out var arr) || arr.ValueKind != JsonValueKind.Array) continue;
+                foreach (var item in arr.EnumerateArray())
+                {
+                    var name = item.GetProperty("name").GetString() ?? "";
+                    var id = item.GetProperty("id").GetString() ?? "";
+                    var location = item.TryGetProperty("location", out var locEl) ? (locEl.GetString() ?? "") : "";
+                    string rg = "";
+                    var parts = id.Split('/', StringSplitOptions.RemoveEmptyEntries);
+                    for (int i = 0; i + 1 < parts.Length; i++)
+                    {
+                        if (parts[i].Equals("resourceGroups", StringComparison.OrdinalIgnoreCase))
+                        {
+                            rg = parts[i + 1];
+                            break;
+                        }
+                    }
+                    var endpoint = item.GetProperty("properties").GetProperty("endpoint").GetString() ?? "";
+                    if (!string.IsNullOrEmpty(endpoint))
+                        stores.Add((name, rg, location, endpoint));
+                }
+            }
+
+            if (stores.Count == 0) return null;
+
+            Console.WriteLine();
+            Console.WriteLine("Select App Configuration store:");
+            for (int i = 0; i < stores.Count; i++)
+            {
+                var s = stores[i];
+                Console.WriteLine($"  {i + 1}. {s.Name}  rg:{s.ResourceGroup}  loc:{s.Location}  {s.Endpoint}");
+            }
+            Console.Write("Choice [1-" + stores.Count + "]: ");
+            var sel = Console.ReadLine();
+            if (int.TryParse(sel, out var idx) && idx >= 1 && idx <= stores.Count)
+            {
+                return stores[idx - 1].Endpoint;
+            }
+            return null;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
+    private static Uri NormalizeEndpoint(string endpoint)
+    {
+        var e = (endpoint ?? string.Empty).Trim();
+        if (Uri.TryCreate(e, UriKind.Absolute, out var abs) &&
+            (abs.Scheme == Uri.UriSchemeHttps || abs.Scheme == Uri.UriSchemeHttp))
+        {
+            return abs;
+        }
+        if (e.Contains("azconfig.io", StringComparison.OrdinalIgnoreCase))
+        {
+            return new Uri("https://" + e.TrimStart('/'));
+        }
+        return new Uri($"https://{e}.azconfig.io");
+    }
+
+    private sealed class SubRef
+    {
+        public string Id { get; set; } = string.Empty;
+        public string Name { get; set; } = string.Empty;
     }
 
     private static JsonElement DecodeJwtPayload(string jwt)

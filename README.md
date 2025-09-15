@@ -23,8 +23,8 @@ $env:APP_CONFIG_LABEL = "dev"   # optional
 
 Option B: Azure AD auth (no connection string)
 
-- Get your App Configuration endpoint, e.g. `https://<name>.azconfig.io`
-- Set `APP_CONFIG_ENDPOINT` (or enter it when prompted at startup)
+- If you don’t set an endpoint, the tool will list your available App Configuration stores via Azure Resource Manager and let you pick one.
+- Alternatively, set `APP_CONFIG_ENDPOINT` directly.
 - Sign in via browser or device code when prompted
   - Your identity must be granted data-plane access on the App Configuration resource.
     Assign the built-in role "App Configuration Data Reader" (read) or "App Configuration Data Owner" (read/write).
