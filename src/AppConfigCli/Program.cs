@@ -55,15 +55,15 @@ internal class Program
         Console.WriteLine("  APP_CONFIG_CONNECTION_STRING  Azure App Configuration connection string");
         Console.WriteLine();
         Console.WriteLine("Commands inside editor:");
-        Console.WriteLine("  e|edit <n>  Edit item n");
-        Console.WriteLine("  a|add       Add new key under prefix");
-        Console.WriteLine("  d|delete <n>  Delete item n (confirm)");
-        Console.WriteLine("  u|undo <n>  Undo local change for n");
-        Console.WriteLine("  s|save      Save all changes");
-        Console.WriteLine("  q|quit      Quit");
-        Console.WriteLine("  h|help      Help");
-        Console.WriteLine("  l|label [value]  Change label filter (no arg clears)");
-        Console.WriteLine("  reload      Reload settings from Azure");
+        Console.WriteLine("  a|add           Add new key under prefix");
+        Console.WriteLine("  d|delete <n>    Delete item n (confirm)");
+        Console.WriteLine("  e|edit <n>      Edit item n");
+        Console.WriteLine("  h|help          Help");
+        Console.WriteLine("  l|label [value] Change label filter (no arg clears)");
+        Console.WriteLine("  q|quit          Quit");
+        Console.WriteLine("  r|reload        Reload settings from Azure");
+        Console.WriteLine("  s|save          Save all changes");
+        Console.WriteLine("  u|undo <n>      Undo local change for n");
         Console.WriteLine();
     }
 
@@ -147,7 +147,7 @@ internal sealed class EditorApp
                 State = ItemState.Unchanged
             });
         }
-        _items.Sort((a, b) => string.Compare(a.ShortKey, b.ShortKey, StringComparison.Ordinal));
+        _items.Sort(CompareItems);
     }
 
     public async Task RunAsync()
@@ -188,6 +188,7 @@ internal sealed class EditorApp
                 case "save":
                     await SaveAsync();
                     break;
+                case "r":
                 case "reload":
                     await LoadAsync();
                     break;
@@ -250,7 +251,7 @@ internal sealed class EditorApp
         }
 
         Console.WriteLine();
-        Console.WriteLine("Commands: e|edit <n>, a|add, d|delete <n>, u|undo <n>, l|label [value], s|save, reload, q|quit, h|help");
+        Console.WriteLine("Commands: a|add, d|delete <n>, e|edit <n>, h|help, l|label [value], q|quit, r|reload, s|save, u|undo <n>");
     }
 
     private void ShowHelp()
@@ -258,15 +259,15 @@ internal sealed class EditorApp
         Console.WriteLine();
         Console.WriteLine("Help - Commands");
         Console.WriteLine(new string('-', 40));
-        Console.WriteLine("e|edit <n>   Edit value of item number n");
-        Console.WriteLine("a|add        Add a new key under the current prefix");
-        Console.WriteLine("d|delete <n> Delete item n (asks for 'yes' confirmation)");
-        Console.WriteLine("u|undo <n>   Undo local changes for item n");
+        Console.WriteLine("a|add            Add a new key under the current prefix");
+        Console.WriteLine("d|delete <n>     Delete item n (asks for 'yes' confirmation)");
+        Console.WriteLine("e|edit <n>       Edit value of item number n");
+        Console.WriteLine("h|help|?         Show this help");
         Console.WriteLine("l|label [value]  Change label filter (no arg clears)");
-        Console.WriteLine("s|save       Save all pending changes to Azure");
-        Console.WriteLine("reload       Reload settings from Azure (discards local edits)");
-        Console.WriteLine("q|quit       Quit the editor");
-        Console.WriteLine("h|help|?     Show this help");
+        Console.WriteLine("q|quit           Quit the editor");
+        Console.WriteLine("r|reload         Reload settings from Azure (discards local edits)");
+        Console.WriteLine("s|save           Save all pending changes to Azure");
+        Console.WriteLine("u|undo <n>       Undo local changes for item n");
         Console.WriteLine();
         Console.WriteLine("Press Enter to return to the list...");
         Console.ReadLine();
@@ -312,7 +313,7 @@ internal sealed class EditorApp
             Value = v,
             State = ItemState.New
         });
-        _items.Sort((a, b) => string.Compare(a.ShortKey, b.ShortKey, StringComparison.Ordinal));
+        _items.Sort(CompareItems);
     }
 
     private void Delete(string[] args)
@@ -526,6 +527,13 @@ internal sealed class EditorApp
         var t = TruncateFixed(text, width);
         if (t.Length < width) return t.PadRight(width);
         return t;
+    }
+
+    private static int CompareItems(Item a, Item b)
+    {
+        int c = string.Compare(a.ShortKey, b.ShortKey, StringComparison.Ordinal);
+        if (c != 0) return c;
+        return string.Compare(a.Label ?? string.Empty, b.Label ?? string.Empty, StringComparison.Ordinal);
     }
 
     private static int GetWindowWidth()
