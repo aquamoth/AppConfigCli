@@ -67,6 +67,23 @@ public static class ItemFilter
         return indices;
     }
 
+    /// <summary>
+    /// Returns the indices (into <paramref name="source"/>) of items visible under the given filters.
+    /// Useful when the caller needs to preserve object identity in a parallel UI list.
+    /// </summary>
+    public static List<int> VisibleIndices(IList<Item> source, string? labelFilter, Regex? keyRegex)
+    {
+        var result = new List<int>(source.Count);
+        for (int i = 0; i < source.Count; i++)
+        {
+            var it = source[i];
+            if (!MatchesLabel(it.Label, labelFilter)) continue;
+            if (keyRegex is not null && !keyRegex.IsMatch(it.ShortKey)) continue;
+            result.Add(i);
+        }
+        return result;
+    }
+
     private static bool MatchesLabel(string? itemLabel, string? filterLabel)
     {
         if (filterLabel is null) return true; // any
@@ -74,4 +91,3 @@ public static class ItemFilter
         return string.Equals(itemLabel, filterLabel, StringComparison.Ordinal);
     }
 }
-

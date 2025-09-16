@@ -86,5 +86,14 @@ public class ItemFilterTests
         indices.Should().BeNull();
         error.Should().Be("Index out of range.");
     }
-}
 
+    [Fact]
+    public void Visible_indices_match_expected_order()
+    {
+        var src = Sample();
+        var regex = new Regex("^C", RegexOptions.Compiled | RegexOptions.IgnoreCase);
+        var idx = ItemFilter.VisibleIndices(src, null, regex);
+        // Expect: Color(dev)=0, Color(prod)=1, Count(dev)=3
+        idx.Should().Equal(new[] { 0, 1, 3 });
+    }
+}

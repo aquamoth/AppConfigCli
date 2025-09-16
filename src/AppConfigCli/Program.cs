@@ -2335,8 +2335,16 @@ internal sealed class EditorApp
 
     private List<Item> GetVisibleItems()
     {
-        if (_keyRegex is null) return new List<Item>(_items);
-        return _items.Where(i => _keyRegex.IsMatch(i.ShortKey)).ToList();
+        // Delegate visibility to Core.ItemFilter to keep semantics centralized
+        var mapper = new EditorMappers();
+        var coreList = _items.Select(mapper.ToCoreItem).ToList();
+        var indices = AppConfigCli.Core.ItemFilter.VisibleIndices(coreList, _label, _keyRegex);
+        var result = new List<Item>(indices.Count);
+        foreach (var idx in indices)
+        {
+            result.Add(_items[idx]);
+        }
+        return result;
     }
 
     // Helpers for building nested object/list structure from split keys
@@ -2495,21 +2503,10 @@ internal sealed class EditorApp
 
     private List<int>? MapVisibleRangeToItemIndices(int start, int end, out string error)
     {
-        error = string.Empty;
-        var vis = GetVisibleItems();
-        if (start < 1 || end < 1 || start > vis.Count || end > vis.Count)
-        {
-            error = "Index out of range.";
-            return null;
-        }
-        if (start > end) (start, end) = (end, start);
-        var result = new List<int>();
-        for (int i = start - 1; i <= end - 1; i++)
-        {
-            var target = vis[i];
-            var idx = _items.IndexOf(target);
-            if (idx >= 0) result.Add(idx);
-        }
-        return result;
+        // Use Core.ItemFilter to compute indices against a mapped Core list
+        var mapper = new EditorMappers();
+        var coreList = _items.Select(mapper.ToCoreItem).ToList();
+        var indices = AppConfigCli.Core.ItemFilter.MapVisibleRangeToSourceIndices(coreList, _label, _keyRegex, start, end, out error);
+        return indices;
     }
 }
