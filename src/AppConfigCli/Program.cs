@@ -18,12 +18,7 @@ internal class Program
             return 0;
         }
 
-        if (string.IsNullOrWhiteSpace(options.Prefix))
-        {
-            Console.Error.WriteLine("Missing required --prefix <value> argument.");
-            PrintHelp();
-            return 2;
-        }
+        // --prefix is now optional; user can set/change it in-app
 
         var connStr = Environment.GetEnvironmentVariable("APP_CONFIG_CONNECTION_STRING");
         ConfigurationClient client;
@@ -70,7 +65,7 @@ internal class Program
             whoAmIAction = async () => await WhoAmIAsync(credential, uri);
         }
 
-        var app = new EditorApp(client, options.Prefix!, options.Label, whoAmIAction, authModeDesc);
+        var app = new EditorApp(client, options.Prefix, options.Label, whoAmIAction, authModeDesc);
         try
         {
             await app.LoadAsync();
@@ -311,10 +306,10 @@ internal class Program
     {
         Console.WriteLine("Azure App Configuration Section Editor");
         Console.WriteLine();
-        Console.WriteLine("Usage: appconfig --prefix <keyPrefix> [--label <label>] [--endpoint <url>] [--tenant <guid>] [--auth <mode>]");
+        Console.WriteLine("Usage: appconfig [--prefix <keyPrefix>] [--label <label>] [--endpoint <url>] [--tenant <guid>] [--auth <mode>]");
         Console.WriteLine();
         Console.WriteLine("Options:");
-        Console.WriteLine("  --prefix <value>    Required. Key prefix (section) to edit");
+        Console.WriteLine("  --prefix <value>    Optional. Key prefix (section) to load initially");
         Console.WriteLine("  --label <value>     Optional. Label filter");
         Console.WriteLine("  --endpoint <url>    Optional. App Configuration endpoint for AAD auth");
         Console.WriteLine("  --tenant <guid>     Optional. Entra ID tenant for AAD auth");
@@ -327,13 +322,15 @@ internal class Program
         Console.WriteLine();
         Console.WriteLine("Commands inside editor:");
         Console.WriteLine("  a|add           Add new key under prefix");
+        Console.WriteLine("  p|prefix [val]  Change prefix (no arg prompts)");
         Console.WriteLine("  c|copy <n> [m]  Copy rows n..m to another label and switch");
         Console.WriteLine("  d|delete <n> [m]  Delete items n..m");
         Console.WriteLine("  e|edit <n>      Edit item n");
         Console.WriteLine("  h|help          Help");
         Console.WriteLine("  l|label [value] Change label filter (no arg clears)");
+        Console.WriteLine("  o|open          Edit all visible items in external editor");
         Console.WriteLine("  q|quit          Quit");
-        Console.WriteLine("  r|reload        Reload settings from Azure");
+        Console.WriteLine("  r|reload        Reload from Azure and reconcile local changes");
         Console.WriteLine("  s|save          Save all changes");
         Console.WriteLine("  u|undo <n> [m]|all  Undo selection or all pending changes");
         Console.WriteLine();
@@ -398,13 +395,13 @@ internal sealed class Item
 internal sealed class EditorApp
 {
     private readonly ConfigurationClient _client;
-    private readonly string _prefix;
+    private string? _prefix;
     private string? _label;
     private readonly List<Item> _items = new();
     private readonly Func<Task>? _whoAmI;
     private readonly string _authModeDesc;
 
-    public EditorApp(ConfigurationClient client, string prefix, string? label, Func<Task>? whoAmI = null, string authModeDesc = "")
+    public EditorApp(ConfigurationClient client, string? prefix, string? label, Func<Task>? whoAmI = null, string authModeDesc = "")
     {
         _client = client;
         _prefix = prefix;
@@ -427,7 +424,7 @@ internal sealed class EditorApp
 
         var selector = new SettingSelector
         {
-            KeyFilter = _prefix + "*",
+            KeyFilter = string.IsNullOrWhiteSpace(_prefix) ? "*" : _prefix + "*",
             LabelFilter = _label
         };
 
@@ -436,7 +433,7 @@ internal sealed class EditorApp
         {
             var fullKey = s.Key;
             var label = s.Label;
-            var shortKey = fullKey.StartsWith(_prefix, StringComparison.Ordinal) ? fullKey[_prefix.Length..] : fullKey;
+            var shortKey = (!string.IsNullOrEmpty(_prefix) && fullKey.StartsWith(_prefix, StringComparison.Ordinal)) ? fullKey[_prefix.Length..] : fullKey;
             var key = MakeKey(fullKey, label);
             seen.Add(key);
 
@@ -476,7 +473,7 @@ internal sealed class EditorApp
         {
             if (seen.Contains(kv.Key)) continue;
             SplitKey(kv.Key, out var fullKey, out var label);
-            var shortKey = fullKey.StartsWith(_prefix, StringComparison.Ordinal) ? fullKey[_prefix.Length..] : fullKey;
+            var shortKey = (!string.IsNullOrEmpty(_prefix) && fullKey.StartsWith(_prefix, StringComparison.Ordinal)) ? fullKey[_prefix.Length..] : fullKey;
             switch (kv.Value.State)
             {
                 case ItemState.New:
@@ -525,6 +522,10 @@ internal sealed class EditorApp
                 case "c":
                 case "copy":
                     await CopyAsync(parts.Skip(1).ToArray());
+                    break;
+                case "p":
+                case "prefix":
+                    await ChangePrefixAsync(parts.Skip(1).ToArray());
                     break;
                 case "d":
                 case "delete":
@@ -584,6 +585,10 @@ internal sealed class EditorApp
                     Console.WriteLine("Press Enter to continue...");
                     Console.ReadLine();
                     break;
+                case "o":
+                case "open":
+                    await OpenInEditorAsync();
+                    break;
                 default:
                     Console.WriteLine("Unknown command. Type 'h' for help.");
                     break;
@@ -607,7 +612,8 @@ internal sealed class EditorApp
     {
         Console.Clear();
         Console.WriteLine($"Azure App Configuration Editor");
-        Console.WriteLine($"Prefix: '{_prefix}'   Label filter: '{_label ?? "(any)"}'   Auth: {_authModeDesc}");
+        var prefixDisplay = string.IsNullOrWhiteSpace(_prefix) ? "(none)" : _prefix;
+        Console.WriteLine($"Prefix: '{prefixDisplay}'   Label filter: '{_label ?? "(any)"}'   Auth: {_authModeDesc}");
 
         var width = GetWindowWidth();
         bool includeValue = width >= 60; // minimal width for value column
@@ -646,7 +652,7 @@ internal sealed class EditorApp
         }
 
         Console.WriteLine();
-        Console.WriteLine("Commands: a|add, c|copy <n> [m], d|delete <n> [m], e|edit <n>, h|help, l|label [value], q|quit, r|reload, s|save, u|undo <n> [m]|all, w|whoami");
+        Console.WriteLine("Commands: a|add, c|copy <n> [m], d|delete <n> [m], e|edit <n>, h|help, l|label [value], o|open, p|prefix [value], q|quit, r|reload, s|save, u|undo <n> [m]|all, w|whoami");
     }
 
     private void ShowHelp()
@@ -659,9 +665,11 @@ internal sealed class EditorApp
         Console.WriteLine("d|delete <n> [m] Delete items n..m");
         Console.WriteLine("e|edit <n>       Edit value of item number n");
         Console.WriteLine("h|help|?         Show this help");
+        Console.WriteLine("o|open           Edit all visible items in external editor");
+        Console.WriteLine("p|prefix [value] Change prefix (no arg prompts)");
         Console.WriteLine("l|label [value]  Change label filter (no arg clears)");
         Console.WriteLine("q|quit           Quit the editor");
-        Console.WriteLine("r|reload         Reload settings from Azure (discards local edits)");
+        Console.WriteLine("r|reload         Reload from Azure and reconcile local changes");
         Console.WriteLine("s|save           Save all pending changes to Azure");
         Console.WriteLine("u|undo <n> [m]|all  Undo local changes for rows n..m, or 'all' to undo everything");
         Console.WriteLine("w|whoami         Show current identity and endpoint");
@@ -719,9 +727,10 @@ internal sealed class EditorApp
         Console.WriteLine("Enter value:");
         Console.Write("> ");
         var v = Console.ReadLine() ?? string.Empty;
+        var basePrefix = _prefix ?? string.Empty;
         _items.Add(new Item
         {
-            FullKey = _prefix + k,
+            FullKey = basePrefix + k,
             ShortKey = k,
             Label = chosenLabel,
             OriginalValue = null,
@@ -982,6 +991,45 @@ internal sealed class EditorApp
         await LoadAsync();
     }
 
+    private async Task ChangePrefixAsync(string[] args)
+    {
+        string? newPrefix = null;
+        if (args.Length == 0)
+        {
+            Console.WriteLine("Enter new prefix (empty for all keys):");
+            Console.Write("> ");
+            var input = Console.ReadLine();
+            newPrefix = input is null ? string.Empty : input.Trim();
+        }
+        else
+        {
+            newPrefix = string.Join(' ', args).Trim();
+        }
+
+        if (HasPendingChanges(out var newCount, out var modCount, out var delCount))
+        {
+            Console.WriteLine($"You have unsaved changes: +{newCount} new, *{modCount} modified, -{delCount} deleted.");
+            Console.WriteLine("Change prefix now?");
+            Console.WriteLine("  S) Save and change");
+            Console.WriteLine("  Q) Change without saving (discard)");
+            Console.WriteLine("  C) Cancel");
+            while (true)
+            {
+                Console.Write("> ");
+                var choice = (Console.ReadLine() ?? string.Empty).Trim().ToLowerInvariant();
+                if (choice.Length == 0) continue;
+                var ch = choice[0];
+                if (ch == 'c') return;
+                if (ch == 's') { await SaveAsync(pause: false); break; }
+                if (ch == 'q') { /* discard */ break; }
+                Console.WriteLine("Please enter S, Q, or C.");
+            }
+        }
+
+        _prefix = newPrefix; // can be empty string to mean 'all keys'
+        await LoadAsync();
+    }
+
     private async Task SaveAsync(bool pause = true)
     {
         Console.WriteLine("Saving changes...");
@@ -1026,6 +1074,195 @@ internal sealed class EditorApp
             Console.ReadLine();
         }
     }
+
+    private async Task OpenInEditorAsync()
+    {
+        if (string.IsNullOrWhiteSpace(_prefix))
+        {
+            Console.WriteLine("Set a prefix first (p|prefix).\nPress Enter to continue...");
+            Console.ReadLine();
+            return;
+        }
+
+        // Prepare temp file
+        string tmpDir = Path.GetTempPath();
+        string file = Path.Combine(tmpDir, $"appconfig-{Guid.NewGuid():N}.txt");
+
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("# AppConfig CLI bulk edit");
+            sb.AppendLine($"# Prefix: {_prefix}");
+            sb.AppendLine($"# Label filter: {_label ?? "(any)"}");
+            sb.AppendLine("# Format: shortKey<TAB>label<TAB>value (\n as \\n, tab as \\t, backslash as \\\\\")");
+            sb.AppendLine("# Delete a key by removing its line. Add by adding a new line.");
+            foreach (var it in _items.Where(i => i.State != ItemState.Deleted))
+            {
+                var key = it.ShortKey;
+                var lbl = it.Label ?? string.Empty;
+                var valEsc = EscapeValue(it.Value ?? string.Empty);
+                sb.AppendLine(string.Join('\t', new[] { key, lbl, valEsc }));
+            }
+            File.WriteAllText(file, sb.ToString());
+
+            // Launch editor
+            var (editorExe, editorArgsFormat) = GetDefaultEditor();
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = editorExe,
+                Arguments = string.Format(editorArgsFormat, QuoteIfNeeded(file)),
+                UseShellExecute = false,
+                RedirectStandardInput = false,
+                RedirectStandardOutput = false,
+                RedirectStandardError = false,
+            };
+            try
+            {
+                using var proc = System.Diagnostics.Process.Start(psi);
+                proc?.WaitForExit();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to launch editor '{editorExe}': {ex.Message}");
+                Console.WriteLine("Press Enter to continue...");
+                Console.ReadLine();
+                return;
+            }
+
+            // Read back and reconcile
+            var lines = File.ReadAllLines(file);
+            var parsed = new Dictionary<(string ShortKey, string? Label), string>(new TupleKeyComparer());
+            foreach (var raw in lines)
+            {
+                if (string.IsNullOrWhiteSpace(raw)) continue;
+                if (raw.TrimStart().StartsWith('#')) continue;
+                var parts = raw.Split('\t');
+                if (parts.Length == 0) continue;
+                string shortKey = parts[0].Trim();
+                if (shortKey.Length == 0) continue;
+                string? label = null;
+                string valueEsc = string.Empty;
+                if (parts.Length == 1)
+                {
+                    label = null;
+                    valueEsc = string.Empty;
+                }
+                else if (parts.Length == 2)
+                {
+                    label = string.Empty;
+                    valueEsc = parts[1];
+                }
+                else
+                {
+                    label = parts[1].Length == 0 ? null : parts[1];
+                    valueEsc = string.Join('\t', parts.Skip(2)); // allow tabs in value via join back
+                }
+                var value = UnescapeValue(valueEsc);
+                parsed[(shortKey, label)] = value;
+            }
+
+            // Build current map for visible (non-deleted) items
+            var current = _items.Where(i => i.State != ItemState.Deleted)
+                                .ToDictionary(i => (i.ShortKey, i.Label), i => i, new TupleKeyComparer());
+
+            int created = 0, updated = 0, deleted = 0;
+
+            // Deletions: present in current but missing in parsed
+            foreach (var kv in current)
+            {
+                if (!parsed.ContainsKey(kv.Key))
+                {
+                    var item = kv.Value;
+                    if (item.IsNew)
+                    {
+                        _items.Remove(item);
+                    }
+                    else
+                    {
+                        item.State = ItemState.Deleted;
+                    }
+                    deleted++;
+                }
+            }
+
+            // Additions/Updates
+            foreach (var kv in parsed)
+            {
+                var key = kv.Key;
+                var newVal = kv.Value;
+                if (current.TryGetValue(key, out var existing))
+                {
+                    existing.Value = newVal;
+                    if (!existing.IsNew)
+                    {
+                        existing.State = string.Equals(existing.OriginalValue ?? string.Empty, newVal, StringComparison.Ordinal)
+                            ? ItemState.Unchanged
+                            : ItemState.Modified;
+                    }
+                    // If IsNew, keep as New even if identical
+                    if (!ReferenceEquals(existing, null)) updated++;
+                }
+                else
+                {
+                    var fullKey = _prefix + key.ShortKey;
+                    _items.Add(new Item
+                    {
+                        FullKey = fullKey,
+                        ShortKey = key.ShortKey,
+                        Label = key.Label,
+                        OriginalValue = null,
+                        Value = newVal,
+                        State = ItemState.New
+                    });
+                    created++;
+                }
+            }
+
+            _items.Sort(CompareItems);
+            Console.WriteLine($"Bulk edit applied: {created} added, {updated} updated, {deleted} deleted.");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+        }
+        finally
+        {
+            try { if (File.Exists(file)) File.Delete(file); } catch { }
+        }
+    }
+
+    private static string EscapeValue(string value)
+        => value.Replace("\\", "\\\\").Replace("\t", "\\t").Replace("\n", "\\n");
+
+    private static string UnescapeValue(string value)
+    {
+        var sb = new StringBuilder();
+        for (int i = 0; i < value.Length; i++)
+        {
+            char c = value[i];
+            if (c == '\\' && i + 1 < value.Length)
+            {
+                char n = value[i + 1];
+                if (n == 'n') { sb.Append('\n'); i++; continue; }
+                if (n == 't') { sb.Append('\t'); i++; continue; }
+                sb.Append(n); i++; continue;
+            }
+            sb.Append(c);
+        }
+        return sb.ToString();
+    }
+
+    private static (string exe, string argsFormat) GetDefaultEditor()
+    {
+        // argsFormat must contain a single {0} placeholder for the file path (already quoted as needed)
+        string? visual = Environment.GetEnvironmentVariable("VISUAL");
+        string? editor = Environment.GetEnvironmentVariable("EDITOR");
+        if (!string.IsNullOrWhiteSpace(visual)) return (visual, "{0}");
+        if (!string.IsNullOrWhiteSpace(editor)) return (editor, "{0}");
+        if (OperatingSystem.IsWindows()) return ("notepad", "{0}");
+        return ("nano", "{0}"); // fall back to nano; user can close and set EDITOR if they prefer vi
+    }
+
+    private static string QuoteIfNeeded(string path)
+        => path.Contains(' ') ? $"\"{path}\"" : path;
 
     private static string ReadLineWithInitial(string initial)
     {
@@ -1174,6 +1411,26 @@ internal sealed class EditorApp
         catch
         {
             return 100;
+        }
+    }
+
+    private sealed class TupleKeyComparer : IEqualityComparer<(string ShortKey, string? Label)>
+    {
+        public bool Equals((string ShortKey, string? Label) x, (string ShortKey, string? Label) y)
+        {
+            return string.Equals(x.ShortKey, y.ShortKey, StringComparison.Ordinal)
+                && string.Equals(x.Label ?? string.Empty, y.Label ?? string.Empty, StringComparison.Ordinal);
+        }
+
+        public int GetHashCode((string ShortKey, string? Label) obj)
+        {
+            unchecked
+            {
+                int h = 17;
+                h = h * 31 + obj.ShortKey.GetHashCode();
+                h = h * 31 + (obj.Label ?? string.Empty).GetHashCode();
+                return h;
+            }
         }
     }
 

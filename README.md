@@ -48,6 +48,7 @@ Using the solution:
 dotnet restore CodexAppConfig.sln
 dotnet build CodexAppConfig.sln
 dotnet run --project src/AppConfigCli -- --prefix app:settings: --label "$APP_CONFIG_LABEL"
+# --prefix is optional; you can set it later in-app with p|prefix
 ```
 
 Directly from the project:
@@ -63,7 +64,7 @@ make run prefix=app:settings: label=dev
 
 ## Usage
 
-- `--prefix <value>`: Required. Key prefix (section) to edit.
+- `--prefix <value>`: Optional. Initial key prefix (section) to load; you can change it in-app.
 - `--label <value>`: Optional. Azure App Config label filter.
 - `--endpoint <url>`: Optional. Azure App Configuration endpoint (used for AAD auth).
 - `--tenant <guid>`: Optional. Entra ID tenant ID to sign into (AAD auth).
@@ -73,10 +74,13 @@ Editor commands (no mouse required):
 
 - `e <n>`: Edit value for item number `n`
 - `a`: Add a new key (under the prefix)
+- `o`: Open all visible items in your external editor (VISUAL/EDITOR, or notepad on Windows)
+- `p [value]`: Change prefix (no arg prompts). Warns if there are unsaved changes, offering Save/Discard/Cancel.
 - `d <n>`: Delete item `n` (asks for confirmation)
-- `r <n>`: Revert local change for item `n`
+- `u <n> [m] | all`: Undo local changes for a range or all
 - `s`: Save all changes to Azure
-- `q`: Quit without saving
+- `r`: Reload from Azure and reconcile local changes
+- `q`: Quit (warns on unsaved changes)
 - `h`: Help
 - `w`: WhoAmI (prints current identity and endpoint)
 
