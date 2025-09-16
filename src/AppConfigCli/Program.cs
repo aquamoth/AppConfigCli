@@ -327,7 +327,7 @@ internal class Program
         Console.WriteLine("  d|delete <n> [m]  Delete items n..m");
         Console.WriteLine("  e|edit <n>      Edit item n");
         Console.WriteLine("  h|help          Help");
-        Console.WriteLine("  l|label [value] Change label filter (no arg clears)");
+        Console.WriteLine("  l|label [value] Change label filter (no arg clears; '-' = empty label)");
         Console.WriteLine("  o|open          Edit all visible items in external editor");
         Console.WriteLine("  q|quit          Quit");
         Console.WriteLine("  r|reload        Reload from Azure and reconcile local changes");
@@ -425,7 +425,7 @@ internal sealed class EditorApp
         var selector = new SettingSelector
         {
             KeyFilter = string.IsNullOrWhiteSpace(_prefix) ? "*" : _prefix + "*",
-            LabelFilter = _label
+            LabelFilter = ToLabelFilter(_label)
         };
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -608,12 +608,26 @@ internal sealed class EditorApp
         label = rest.Length == 0 ? null : rest;
     }
 
+    private static string? ToLabelFilter(string? label)
+    {
+        if (label is null) return null; // any label
+        if (label.Length == 0) return "\0"; // special filter for empty label
+        return label;
+    }
+
+    private static string? ToWriteLabel(string? label)
+    {
+        // When writing/deleting, use null for the empty label
+        return string.IsNullOrEmpty(label) ? null : label;
+    }
+
     private void Render()
     {
         Console.Clear();
         Console.WriteLine($"Azure App Configuration Editor");
         var prefixDisplay = string.IsNullOrWhiteSpace(_prefix) ? "(none)" : _prefix;
-        Console.WriteLine($"Prefix: '{prefixDisplay}'   Label filter: '{_label ?? "(any)"}'   Auth: {_authModeDesc}");
+        var labelDisplay = _label is null ? "(any)" : (_label.Length == 0 ? "(none)" : _label);
+        Console.WriteLine($"Prefix: '{prefixDisplay}'   Label filter: '{labelDisplay}'   Auth: {_authModeDesc}");
 
         var width = GetWindowWidth();
         bool includeValue = width >= 60; // minimal width for value column
@@ -637,7 +651,7 @@ internal sealed class EditorApp
                 _ => ' '
             };
             var keyDisp = TruncateFixed(item.ShortKey, keyWidth);
-            var labelText = item.Label ?? "(none)";
+            var labelText = string.IsNullOrEmpty(item.Label) ? "(none)" : item.Label;
             var labelDisp = TruncateFixed(labelText, labelWidth);
             if (valueWidth > 0)
             {
@@ -667,7 +681,7 @@ internal sealed class EditorApp
         Console.WriteLine("h|help|?         Show this help");
         Console.WriteLine("o|open           Edit all visible items in external editor");
         Console.WriteLine("p|prefix [value] Change prefix (no arg prompts)");
-        Console.WriteLine("l|label [value]  Change label filter (no arg clears)");
+        Console.WriteLine("l|label [value]  Change label filter (no arg clears; '-' = empty label)");
         Console.WriteLine("q|quit           Quit the editor");
         Console.WriteLine("r|reload         Reload from Azure and reconcile local changes");
         Console.WriteLine("s|save           Save all pending changes to Azure");
@@ -980,14 +994,23 @@ internal sealed class EditorApp
     {
         if (args.Length == 0)
         {
-            // No argument clears the filter
+            // No argument clears the filter (any label)
             _label = null;
             await LoadAsync();
             return;
         }
 
         var newLabelArg = string.Join(' ', args).Trim();
-        _label = newLabelArg; // accept any value literally, including "clear"
+        if (newLabelArg == "-")
+        {
+            // Single dash selects the explicitly empty label
+            _label = string.Empty;
+        }
+        else
+        {
+            // Any other value is a literal label
+            _label = newLabelArg;
+        }
         await LoadAsync();
     }
 
@@ -1040,7 +1063,7 @@ internal sealed class EditorApp
         {
             try
             {
-                var setting = new ConfigurationSetting(item.FullKey, item.Value ?? string.Empty, item.Label);
+                var setting = new ConfigurationSetting(item.FullKey, item.Value ?? string.Empty, ToWriteLabel(item.Label));
                 await _client.SetConfigurationSettingAsync(setting);
                 item.OriginalValue = item.Value;
                 item.State = ItemState.Unchanged;
@@ -1057,7 +1080,7 @@ internal sealed class EditorApp
         {
             try
             {
-                await _client.DeleteConfigurationSettingAsync(item.FullKey, item.Label);
+                await _client.DeleteConfigurationSettingAsync(item.FullKey, ToWriteLabel(item.Label));
                 _items.Remove(item);
                 changes++;
             }
@@ -1094,7 +1117,8 @@ internal sealed class EditorApp
             var sb = new StringBuilder();
             sb.AppendLine("# AppConfig CLI bulk edit");
             sb.AppendLine($"# Prefix: {(_prefix ?? "(all)")}");
-            sb.AppendLine($"# Label: {_label}");
+            var labelHeader = _label is null ? "(any)" : (_label.Length == 0 ? "(none)" : _label);
+            sb.AppendLine($"# Label: {labelHeader}");
             sb.AppendLine("# Format: shortKey<TAB>value");
             sb.AppendLine(@"# Escape: newline as \n, tab as \t, backslash as \\");
             sb.AppendLine("# Delete a key by removing its line. Add by adding a new line.");
@@ -1428,7 +1452,7 @@ internal sealed class EditorApp
         const int minValue = 10;
 
         // Determine label width from data (clamped)
-        var labelMax = Math.Max(6, _items.Select(i => (i.Label ?? "(none)").Length).DefaultIfEmpty(6).Max());
+        var labelMax = Math.Max(6, _items.Select(i => (string.IsNullOrEmpty(i.Label) ? "(none)" : i.Label!).Length).DefaultIfEmpty(6).Max());
         labelWidth = Math.Clamp(labelMax, minLabel, maxLabel);
 
         // Fixed non-column characters in a row

@@ -80,6 +80,10 @@ Editor commands (no mouse required):
 - `u <n> [m] | all`: Undo local changes for a range or all
 - `s`: Save all changes to Azure
 - `r`: Reload from Azure and reconcile local changes
+- `l [value]`: Change label filter.
+   - No arg: clear filter (any label)
+   - `-`: explicitly empty label
+   - Any other value: literal label
 - `q`: Quit (warns on unsaved changes)
 - `h`: Help
 - `w`: WhoAmI (prints current identity and endpoint)
