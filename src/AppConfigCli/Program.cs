@@ -1077,9 +1077,10 @@ internal sealed class EditorApp
 
     private async Task OpenInEditorAsync()
     {
-        if (string.IsNullOrWhiteSpace(_prefix))
+        if (_label is null)
         {
-            Console.WriteLine("Set a prefix first (p|prefix).\nPress Enter to continue...");
+            Console.WriteLine("Open requires an active label filter. Set one with l|label <value> first.");
+            Console.WriteLine("Press Enter to continue...");
             Console.ReadLine();
             return;
         }
@@ -1092,16 +1093,16 @@ internal sealed class EditorApp
         {
             var sb = new StringBuilder();
             sb.AppendLine("# AppConfig CLI bulk edit");
-            sb.AppendLine($"# Prefix: {_prefix}");
-            sb.AppendLine($"# Label filter: {_label ?? "(any)"}");
-            sb.AppendLine("# Format: shortKey<TAB>label<TAB>value (\n as \\n, tab as \\t, backslash as \\\\\")");
+            sb.AppendLine($"# Prefix: {(_prefix ?? "(all)")}");
+            sb.AppendLine($"# Label: {_label}");
+            sb.AppendLine("# Format: shortKey<TAB>value");
+            sb.AppendLine(@"# Escape: newline as \n, tab as \t, backslash as \\");
             sb.AppendLine("# Delete a key by removing its line. Add by adding a new line.");
             foreach (var it in _items.Where(i => i.State != ItemState.Deleted))
             {
                 var key = it.ShortKey;
-                var lbl = it.Label ?? string.Empty;
                 var valEsc = EscapeValue(it.Value ?? string.Empty);
-                sb.AppendLine(string.Join('\t', new[] { key, lbl, valEsc }));
+                sb.AppendLine(string.Join('\t', new[] { key, valEsc }));
             }
             File.WriteAllText(file, sb.ToString());
 
@@ -1131,39 +1132,23 @@ internal sealed class EditorApp
 
             // Read back and reconcile
             var lines = File.ReadAllLines(file);
-            var parsed = new Dictionary<(string ShortKey, string? Label), string>(new TupleKeyComparer());
+            var parsed = new Dictionary<string, string>(StringComparer.Ordinal);
             foreach (var raw in lines)
             {
                 if (string.IsNullOrWhiteSpace(raw)) continue;
                 if (raw.TrimStart().StartsWith('#')) continue;
-                var parts = raw.Split('\t');
+                var parts = raw.Split('\t', 2);
                 if (parts.Length == 0) continue;
                 string shortKey = parts[0].Trim();
                 if (shortKey.Length == 0) continue;
-                string? label = null;
-                string valueEsc = string.Empty;
-                if (parts.Length == 1)
-                {
-                    label = null;
-                    valueEsc = string.Empty;
-                }
-                else if (parts.Length == 2)
-                {
-                    label = string.Empty;
-                    valueEsc = parts[1];
-                }
-                else
-                {
-                    label = parts[1].Length == 0 ? null : parts[1];
-                    valueEsc = string.Join('\t', parts.Skip(2)); // allow tabs in value via join back
-                }
+                string valueEsc = parts.Length >= 2 ? parts[1] : string.Empty;
                 var value = UnescapeValue(valueEsc);
-                parsed[(shortKey, label)] = value;
+                parsed[shortKey] = value;
             }
 
-            // Build current map for visible (non-deleted) items
+            // Build current map for visible (non-deleted) items (under active label)
             var current = _items.Where(i => i.State != ItemState.Deleted)
-                                .ToDictionary(i => (i.ShortKey, i.Label), i => i, new TupleKeyComparer());
+                                .ToDictionary(i => i.ShortKey, i => i, StringComparer.Ordinal);
 
             int created = 0, updated = 0, deleted = 0;
 
@@ -1200,16 +1185,16 @@ internal sealed class EditorApp
                             : ItemState.Modified;
                     }
                     // If IsNew, keep as New even if identical
-                    if (!ReferenceEquals(existing, null)) updated++;
+                    updated++;
                 }
                 else
                 {
-                    var fullKey = _prefix + key.ShortKey;
+                    var fullKey = (_prefix ?? string.Empty) + key;
                     _items.Add(new Item
                     {
                         FullKey = fullKey,
-                        ShortKey = key.ShortKey,
-                        Label = key.Label,
+                        ShortKey = key,
+                        Label = _label,
                         OriginalValue = null,
                         Value = newVal,
                         State = ItemState.New
@@ -1219,7 +1204,7 @@ internal sealed class EditorApp
             }
 
             _items.Sort(CompareItems);
-            Console.WriteLine($"Bulk edit applied: {created} added, {updated} updated, {deleted} deleted.");
+            Console.WriteLine($"Bulk edit applied for label [{_label ?? "(none)"}]: {created} added, {updated} updated, {deleted} deleted.");
             Console.WriteLine("Press Enter to continue...");
             Console.ReadLine();
         }
