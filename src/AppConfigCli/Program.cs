@@ -542,6 +542,9 @@ internal sealed class EditorApp
                 case "grep":
                     SetKeyRegex(parts.Skip(1).ToArray());
                     break;
+                case "json":
+                    await OpenJsonInEditorAsync(parts.Skip(1).ToArray());
+                    break;
                 case "label":
                 case "l":
                     await ChangeLabelAsync(parts.Skip(1).ToArray());
@@ -675,7 +678,7 @@ internal sealed class EditorApp
         }
 
         Console.WriteLine();
-        Console.WriteLine("Commands: a|add, c|copy <n> [m], d|delete <n> [m], e|edit <n>, g|grep [regex], h|help, l|label [value], o|open, p|prefix [value], q|quit, r|reload, s|save, u|undo <n> [m]|all, w|whoami");
+        Console.WriteLine("Commands: a|add, c|copy <n> [m], d|delete <n> [m], e|edit <n>, g|grep [regex], h|help, json <sep>, l|label [value], o|open, p|prefix [value], q|quit, r|reload, s|save, u|undo <n> [m]|all, w|whoami");
     }
 
     private void ShowHelp()
@@ -689,6 +692,7 @@ internal sealed class EditorApp
         Console.WriteLine("e|edit <n>       Edit value of item number n");
         Console.WriteLine("g|grep [regex]   Set key regex filter (no arg clears)");
         Console.WriteLine("h|help|?         Show this help");
+        Console.WriteLine("json <sep>       Edit visible items as nested JSON split by <sep>");
         Console.WriteLine("o|open           Edit all visible items in external editor");
         Console.WriteLine("p|prefix [value] Change prefix (no arg prompts)");
         Console.WriteLine("l|label [value]  Change label filter (no arg clears; '-' = empty label)");
@@ -1247,6 +1251,358 @@ internal sealed class EditorApp
             Console.WriteLine($"Bulk edit applied for label [{_label ?? "(none)"}]: {created} added, {updated} updated, {deleted} deleted.");
             Console.WriteLine("Press Enter to continue...");
             Console.ReadLine();
+        }
+        finally
+        {
+            try { if (File.Exists(file)) File.Delete(file); } catch { }
+        }
+    }
+
+    private async Task OpenJsonInEditorAsync(string[] args)
+    {
+        if (_label is null)
+        {
+            Console.WriteLine("json requires an active label filter. Set one with l|label <value> first.");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+            return;
+        }
+
+        if (args.Length == 0)
+        {
+            Console.WriteLine("Usage: json <separator>   e.g., json :");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+            return;
+        }
+
+        var sep = string.Join(' ', args);
+        if (string.IsNullOrEmpty(sep))
+        {
+            Console.WriteLine("Separator cannot be empty.");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+            return;
+        }
+
+        string tmpDir = Path.GetTempPath();
+        string file = Path.Combine(tmpDir, $"appconfig-json-{Guid.NewGuid():N}.json");
+
+        try
+        {
+            // Build nested object (supports objects and arrays via numeric segments)
+            var root = new Dictionary<string, object>(StringComparer.Ordinal);
+            foreach (var it in GetVisibleItems().Where(i => i.State != ItemState.Deleted))
+            {
+                var path = it.ShortKey.Split(sep, StringSplitOptions.RemoveEmptyEntries);
+                AddPathDict(root, path, it.Value ?? string.Empty);
+            }
+
+            var json = JsonSerializer.Serialize(root, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(file, json);
+
+            // Launch editor
+            var (editorExe, editorArgsFormat) = GetDefaultEditor();
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = editorExe,
+                Arguments = string.Format(editorArgsFormat, QuoteIfNeeded(file)),
+                UseShellExecute = false,
+                RedirectStandardInput = false,
+                RedirectStandardOutput = false,
+                RedirectStandardError = false,
+            };
+            try
+            {
+                using var proc = System.Diagnostics.Process.Start(psi);
+                proc?.WaitForExit();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to launch editor '{editorExe}': {ex.Message}");
+                Console.WriteLine("Press Enter to continue...");
+                Console.ReadLine();
+                return;
+            }
+
+            // Parse edited JSON
+            Dictionary<string, string> parsed;
+            try
+            {
+                var text = File.ReadAllText(file);
+                using var doc = JsonDocument.Parse(text);
+                if (doc.RootElement.ValueKind != JsonValueKind.Object)
+                {
+                    Console.WriteLine("Top-level JSON must be an object.");
+                    Console.WriteLine("Press Enter to continue...");
+                    Console.ReadLine();
+                    return;
+                }
+                parsed = new Dictionary<string, string>(StringComparer.Ordinal);
+                var stack = new Stack<string>();
+                void Walk(JsonElement el)
+                {
+                    if (el.ValueKind == JsonValueKind.Object)
+                    {
+                        // Leaf value for current path if __value present
+                        if (el.TryGetProperty("__value", out var v))
+                        {
+                            var sk = string.Join(sep, stack.Reverse());
+                            parsed[sk] = v.ValueKind == JsonValueKind.String ? v.GetString() ?? string.Empty : v.GetRawText();
+                        }
+                        foreach (var prop in el.EnumerateObject())
+                        {
+                            if (prop.NameEquals("__value")) continue;
+                            stack.Push(prop.Name);
+                            Walk(prop.Value);
+                            stack.Pop();
+                        }
+                    }
+                    else if (el.ValueKind == JsonValueKind.Array)
+                    {
+                        int idx = 0;
+                        foreach (var item in el.EnumerateArray())
+                        {
+                            stack.Push(idx.ToString());
+                            Walk(item);
+                            stack.Pop();
+                            idx++;
+                        }
+                    }
+                    else
+                    {
+                        var sk = string.Join(sep, stack.Reverse());
+                        parsed[sk] = el.ValueKind == JsonValueKind.String ? el.GetString() ?? string.Empty : el.GetRawText();
+                    }
+                }
+                Walk(doc.RootElement);
+            }
+            catch (JsonException jex)
+            {
+                var line = jex.LineNumber.HasValue ? jex.LineNumber.Value.ToString() : "?";
+                var pos = jex.BytePositionInLine.HasValue ? jex.BytePositionInLine.Value.ToString() : "?";
+                Console.WriteLine($"Invalid JSON at line {line}, position {pos}: {jex.Message}");
+                Console.WriteLine("Press Enter to continue...");
+                Console.ReadLine();
+                return;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Invalid JSON: {ex.Message}");
+                Console.WriteLine("Press Enter to continue...");
+                Console.ReadLine();
+                return;
+            }
+
+            // Current visible map
+            var current = GetVisibleItems().Where(i => i.State != ItemState.Deleted)
+                                           .ToDictionary(i => i.ShortKey, i => i, StringComparer.Ordinal);
+
+            int created = 0, updated = 0, deleted = 0;
+
+            // Deletions
+            foreach (var kv in current)
+            {
+                if (!parsed.ContainsKey(kv.Key))
+                {
+                    var item = kv.Value;
+                    if (item.IsNew)
+                    {
+                        _items.Remove(item);
+                    }
+                    else
+                    {
+                        item.State = ItemState.Deleted;
+                    }
+                    deleted++;
+                }
+            }
+
+            // Additions/Updates
+            foreach (var kv in parsed)
+            {
+                var shortKey = kv.Key;
+                var newVal = kv.Value;
+                if (current.TryGetValue(shortKey, out var existing))
+                {
+                    existing.Value = newVal;
+                    if (!existing.IsNew)
+                    {
+                        existing.State = string.Equals(existing.OriginalValue ?? string.Empty, newVal, StringComparison.Ordinal)
+                            ? ItemState.Unchanged
+                            : ItemState.Modified;
+                    }
+                    updated++;
+                }
+                else
+                {
+                    // Resurrect if previously deleted
+                    var resurrect = _items.FirstOrDefault(i =>
+                        string.Equals(i.ShortKey, shortKey, StringComparison.Ordinal) &&
+                        string.Equals(i.Label ?? string.Empty, _label ?? string.Empty, StringComparison.Ordinal) &&
+                        i.State == ItemState.Deleted);
+                    if (resurrect is not null)
+                    {
+                        resurrect.Value = newVal;
+                        resurrect.State = string.Equals(resurrect.OriginalValue ?? string.Empty, newVal, StringComparison.Ordinal)
+                            ? ItemState.Unchanged
+                            : ItemState.Modified;
+                        updated++;
+                    }
+                    else
+                    {
+                        var fullKey = (_prefix ?? string.Empty) + shortKey;
+                        _items.Add(new Item
+                        {
+                            FullKey = fullKey,
+                            ShortKey = shortKey,
+                            Label = _label,
+                            OriginalValue = null,
+                            Value = newVal,
+                            State = ItemState.New
+                        });
+                        created++;
+                    }
+                }
+            }
+
+            ConsolidateDuplicates();
+            _items.Sort(CompareItems);
+            Console.WriteLine($"JSON edit applied for label [{(_label?.Length == 0 ? "(none)" : _label) ?? "(any)"}]: {created} added, {updated} updated, {deleted} deleted.");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+
+            void AddPathDict(Dictionary<string, object> node, string[] segments, string value)
+            {
+                if (segments.Length == 0)
+                {
+                    node["__value"] = value;
+                    return;
+                }
+                var head = segments[0];
+                if (!node.TryGetValue(head, out var child))
+                {
+                    if (segments.Length == 1)
+                    {
+                        node[head] = value;
+                        return;
+                    }
+                    bool nextIsIndex = int.TryParse(segments[1], out _);
+                    if (nextIsIndex)
+                    {
+                        var list = new List<object?>();
+                        node[head] = list;
+                        AddPathList(list, segments[1..], value);
+                    }
+                    else
+                    {
+                        var dict = new Dictionary<string, object>(StringComparer.Ordinal);
+                        node[head] = dict;
+                        AddPathDict(dict, segments[1..], value);
+                    }
+                }
+                else if (child is string s)
+                {
+                    bool nextIsIndex = segments.Length > 1 && int.TryParse(segments[1], out _);
+                    if (nextIsIndex)
+                    {
+                        var list = new List<object?>();
+                        node[head] = list;
+                        AddPathList(list, segments[1..], value);
+                    }
+                    else
+                    {
+                        var dict = new Dictionary<string, object>(StringComparer.Ordinal) { ["__value"] = s };
+                        node[head] = dict;
+                        AddPathDict(dict, segments[1..], value);
+                    }
+                }
+                else if (child is Dictionary<string, object> dict)
+                {
+                    if (segments.Length == 1)
+                    {
+                        dict["__value"] = value;
+                    }
+                    else
+                    {
+                        AddPathDict(dict, segments[1..], value);
+                    }
+                }
+                else if (child is List<object?> list)
+                {
+                    AddPathList(list, segments[1..], value);
+                }
+            }
+
+            void AddPathList(List<object?> list, string[] segments, string value)
+            {
+                if (segments.Length == 0) return; // nothing to set
+                var idxStr = segments[0];
+                if (!int.TryParse(idxStr, out int idx))
+                {
+                    // Treat non-numeric as object under the array element
+                    EnsureListSize(list, 1);
+                    var head = 0; // not ideal, but fallback: create single object at [0]
+                    if (list[head] is not Dictionary<string, object> d)
+                    {
+                        d = new Dictionary<string, object>(StringComparer.Ordinal);
+                        list[head] = d;
+                    }
+                    AddPathDict(d, segments, value);
+                    return;
+                }
+                EnsureListSize(list, idx + 1);
+                var child = list[idx];
+                if (segments.Length == 1)
+                {
+                    list[idx] = value;
+                    return;
+                }
+                bool nextIsIndex = int.TryParse(segments[1], out _);
+                if (child is null)
+                {
+                    if (nextIsIndex)
+                    {
+                        var inner = new List<object?>();
+                        list[idx] = inner;
+                        AddPathList(inner, segments[1..], value);
+                    }
+                    else
+                    {
+                        var d = new Dictionary<string, object>(StringComparer.Ordinal);
+                        list[idx] = d;
+                        AddPathDict(d, segments[1..], value);
+                    }
+                }
+                else if (child is string s)
+                {
+                    if (nextIsIndex)
+                    {
+                        var inner = new List<object?>();
+                        list[idx] = inner;
+                        AddPathList(inner, segments[1..], value);
+                    }
+                    else
+                    {
+                        var d = new Dictionary<string, object>(StringComparer.Ordinal) { ["__value"] = s };
+                        list[idx] = d;
+                        AddPathDict(d, segments[1..], value);
+                    }
+                }
+                else if (child is Dictionary<string, object> d)
+                {
+                    AddPathDict(d, segments[1..], value);
+                }
+                else if (child is List<object?> l)
+                {
+                    AddPathList(l, segments[1..], value);
+                }
+            }
+
+            void EnsureListSize(List<object?> list, int size)
+            {
+                while (list.Count < size) list.Add(null);
+            }
         }
         finally
         {
