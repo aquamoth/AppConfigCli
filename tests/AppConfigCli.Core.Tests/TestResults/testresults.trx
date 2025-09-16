@@ -1,93 +1,147 @@
 ﻿<?xml version="1.0" encoding="utf-8"?>
-<TestRun id="2e82baa4-a48b-4c85-9f89-f1f9604bfcbe" name="@shoppa-fw16-1 2025-09-16 22:57:35" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
-  <Times creation="2025-09-16T22:57:35.7363224+02:00" queuing="2025-09-16T22:57:35.7363225+02:00" start="2025-09-16T22:57:34.8208274+02:00" finish="2025-09-16T22:57:35.9491473+02:00" />
-  <TestSettings name="default" id="41f38017-6915-4067-88f9-28a30fc3ea7b">
-    <Deployment runDeploymentRoot="_shoppa-fw16-1_2025-09-16_22_57_35" />
+<TestRun id="8357ff49-e2db-49da-9b74-b19265f0e4d4" name="@shoppa-fw16-1 2025-09-16 23:02:50" xmlns="http://microsoft.com/schemas/VisualStudio/TeamTest/2010">
+  <Times creation="2025-09-16T23:02:50.9996439+02:00" queuing="2025-09-16T23:02:50.9996439+02:00" start="2025-09-16T23:02:50.0604355+02:00" finish="2025-09-16T23:02:51.2160239+02:00" />
+  <TestSettings name="default" id="035e3571-0331-42c6-856a-7597b9440797">
+    <Deployment runDeploymentRoot="_shoppa-fw16-1_2025-09-16_23_02_50" />
   </TestSettings>
   <Results>
-    <UnitTestResult executionId="2dad2d03-42dd-48d7-9137-aaa51f8edafe" testId="46bcd91f-5c38-841d-c5a0-4ecacdbbdd07" testName="LabelFilterTests.ForWrite_maps_correctly(input: &quot;dev&quot;, expected: &quot;dev&quot;)" computerName="shoppa-fw16-1" duration="00:00:00.0001845" startTime="2025-09-16T22:57:35.6955386+02:00" endTime="2025-09-16T22:57:35.6955387+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="2dad2d03-42dd-48d7-9137-aaa51f8edafe" />
-    <UnitTestResult executionId="c961f79c-a98d-4222-8f22-dfe005a04a44" testId="185df21f-1c52-7a74-ae0a-070526063ed0" testName="AppStateReconcilerTests.Modified_deleted_on_server_becomes_New" computerName="shoppa-fw16-1" duration="00:00:00.0002712" startTime="2025-09-16T22:57:35.7152092+02:00" endTime="2025-09-16T22:57:35.7152092+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="c961f79c-a98d-4222-8f22-dfe005a04a44" />
-    <UnitTestResult executionId="e8573aee-4a47-4683-a67f-393d855cc299" testId="420c2de5-eb14-37a1-3bc6-522122aec02c" testName="AppStateReconcilerTests.Deleted_that_is_gone_on_server_is_dropped" computerName="shoppa-fw16-1" duration="00:00:00.0117130" startTime="2025-09-16T22:57:35.6931809+02:00" endTime="2025-09-16T22:57:35.6931811+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="e8573aee-4a47-4683-a67f-393d855cc299" />
-    <UnitTestResult executionId="144b2e0e-3fec-48c3-9160-7393f37a91c7" testId="6de2d353-8914-63d9-5b40-fa699064c5a8" testName="LabelFilterTests.ForWrite_maps_correctly(input: &quot;&quot;, expected: null)" computerName="shoppa-fw16-1" duration="00:00:00.0001259" startTime="2025-09-16T22:57:35.6958133+02:00" endTime="2025-09-16T22:57:35.6958134+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="144b2e0e-3fec-48c3-9160-7393f37a91c7" />
-    <UnitTestResult executionId="2416d386-bdc7-4e9a-abc8-c1ff453da195" testId="24ea7713-3960-4410-c389-bcc3b5fcbd39" testName="AppStateReconcilerTests.Modified_matching_server_becomes_Unchanged" computerName="shoppa-fw16-1" duration="00:00:00.0020315" startTime="2025-09-16T22:57:35.7149413+02:00" endTime="2025-09-16T22:57:35.7149414+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="2416d386-bdc7-4e9a-abc8-c1ff453da195" />
-    <UnitTestResult executionId="2a2b75a0-0616-4acc-bcdc-d6f90dcc0aea" testId="b8ed0044-c78b-22f1-4699-f739baf5a488" testName="LabelFilterTests.ForSelector_maps_correctly(input: &quot;&quot;, expected: &quot;\0&quot;)" computerName="shoppa-fw16-1" duration="00:00:00.0000054" startTime="2025-09-16T22:57:35.6952202+02:00" endTime="2025-09-16T22:57:35.6952202+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="2a2b75a0-0616-4acc-bcdc-d6f90dcc0aea" />
-    <UnitTestResult executionId="704a1eb3-4c91-401f-a163-cc45280547de" testId="99f03c58-a80e-a3a9-bf9e-4ac8779a3bb8" testName="LabelFilterTests.ForWrite_maps_correctly(input: &quot;prod&quot;, expected: &quot;prod&quot;)" computerName="shoppa-fw16-1" duration="00:00:00.0000051" startTime="2025-09-16T22:57:35.6960836+02:00" endTime="2025-09-16T22:57:35.6960837+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="704a1eb3-4c91-401f-a163-cc45280547de" />
-    <UnitTestResult executionId="b501e584-4654-4ab0-b357-4b8a7940b8a4" testId="8e4dfe9e-29fc-a433-20c2-c24a72a3a5a3" testName="LabelFilterTests.ForSelector_maps_correctly(input: &quot;dev&quot;, expected: &quot;dev&quot;)" computerName="shoppa-fw16-1" duration="00:00:00.0013454" startTime="2025-09-16T22:57:35.6944422+02:00" endTime="2025-09-16T22:57:35.6944423+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="b501e584-4654-4ab0-b357-4b8a7940b8a4" />
-    <UnitTestResult executionId="59dd5bae-c4f8-430a-98e9-b6729661d637" testId="9e9e30ae-91b6-58a0-625a-1cde020cb68c" testName="LabelFilterTests.ForWrite_maps_correctly(input: null, expected: null)" computerName="shoppa-fw16-1" duration="00:00:00.0000050" startTime="2025-09-16T22:57:35.7147212+02:00" endTime="2025-09-16T22:57:35.7147214+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="59dd5bae-c4f8-430a-98e9-b6729661d637" />
-    <UnitTestResult executionId="440e5302-fe0d-44dc-a0fc-8170773996a8" testId="99df7739-9d13-9497-17d5-a762f0dab85e" testName="LabelFilterTests.ForSelector_maps_correctly(input: &quot;prod&quot;, expected: &quot;prod&quot;)" computerName="shoppa-fw16-1" duration="00:00:00.0000547" startTime="2025-09-16T22:57:35.6949434+02:00" endTime="2025-09-16T22:57:35.6949435+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="440e5302-fe0d-44dc-a0fc-8170773996a8" />
-    <UnitTestResult executionId="a3cc4973-bcb4-490b-ba38-e6098eeacef3" testId="3f47e510-cda8-38f6-3a2e-296a0aeb1605" testName="LabelFilterTests.ForSelector_maps_correctly(input: null, expected: null)" computerName="shoppa-fw16-1" duration="00:00:00.0117556" startTime="2025-09-16T22:57:35.6869415+02:00" endTime="2025-09-16T22:57:35.6869536+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="a3cc4973-bcb4-490b-ba38-e6098eeacef3" />
+    <UnitTestResult executionId="a64b5622-0a6a-452c-b052-f4b52bfdf079" testId="9037fe3e-122a-e7cd-a5cf-b21cde9805b6" testName="ItemFilterTests.Visible_any_label_returns_all" computerName="shoppa-fw16-1" duration="00:00:00.0001741" startTime="2025-09-16T23:02:50.9774085+02:00" endTime="2025-09-16T23:02:50.9774085+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="a64b5622-0a6a-452c-b052-f4b52bfdf079" />
+    <UnitTestResult executionId="2cf9b16d-d512-4728-be28-5117f15ca013" testId="99f03c58-a80e-a3a9-bf9e-4ac8779a3bb8" testName="LabelFilterTests.ForWrite_maps_correctly(input: &quot;prod&quot;, expected: &quot;prod&quot;)" computerName="shoppa-fw16-1" duration="00:00:00.0000071" startTime="2025-09-16T23:02:50.9761776+02:00" endTime="2025-09-16T23:02:50.9761778+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="2cf9b16d-d512-4728-be28-5117f15ca013" />
+    <UnitTestResult executionId="3862180f-b032-4178-9506-b2f331551ac6" testId="8e4dfe9e-29fc-a433-20c2-c24a72a3a5a3" testName="LabelFilterTests.ForSelector_maps_correctly(input: &quot;dev&quot;, expected: &quot;dev&quot;)" computerName="shoppa-fw16-1" duration="00:00:00.0015353" startTime="2025-09-16T23:02:50.9586498+02:00" endTime="2025-09-16T23:02:50.9586499+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="3862180f-b032-4178-9506-b2f331551ac6" />
+    <UnitTestResult executionId="33898fea-fe81-4f22-9fc8-2a94f2ebb2c2" testId="185df21f-1c52-7a74-ae0a-070526063ed0" testName="AppStateReconcilerTests.Modified_deleted_on_server_becomes_New" computerName="shoppa-fw16-1" duration="00:00:00.0002684" startTime="2025-09-16T23:02:50.9769939+02:00" endTime="2025-09-16T23:02:50.9769940+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="33898fea-fe81-4f22-9fc8-2a94f2ebb2c2" />
+    <UnitTestResult executionId="fd476eac-afae-4b37-9a82-163d0ae4963b" testId="b8ed0044-c78b-22f1-4699-f739baf5a488" testName="LabelFilterTests.ForSelector_maps_correctly(input: &quot;&quot;, expected: &quot;\0&quot;)" computerName="shoppa-fw16-1" duration="00:00:00.0000049" startTime="2025-09-16T23:02:50.9592136+02:00" endTime="2025-09-16T23:02:50.9592137+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="fd476eac-afae-4b37-9a82-163d0ae4963b" />
+    <UnitTestResult executionId="b5f688aa-898d-4c4e-91ff-50ecbb6af763" testId="3035024e-cb3c-39b1-eba9-192ba9ed2f26" testName="ItemFilterTests.Visible_unlabeled_returns_only_empty_label" computerName="shoppa-fw16-1" duration="00:00:00.0006891" startTime="2025-09-16T23:02:50.9794746+02:00" endTime="2025-09-16T23:02:50.9794747+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="b5f688aa-898d-4c4e-91ff-50ecbb6af763" />
+    <UnitTestResult executionId="d57d15c5-f641-42dd-a801-173219afbd31" testId="9e9e30ae-91b6-58a0-625a-1cde020cb68c" testName="LabelFilterTests.ForWrite_maps_correctly(input: null, expected: null)" computerName="shoppa-fw16-1" duration="00:00:00.0000009" startTime="2025-09-16T23:02:50.9765378+02:00" endTime="2025-09-16T23:02:50.9765378+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="d57d15c5-f641-42dd-a801-173219afbd31" />
+    <UnitTestResult executionId="2282e1b9-ff3c-421b-80fb-62e852b7ba71" testId="2f5b9956-c28d-49fa-fd3a-9c80cdbd33db" testName="ItemFilterTests.Map_range_any_label(start: 2, end: 3, expected: [1, 2])" computerName="shoppa-fw16-1" duration="00:00:00.0001717" startTime="2025-09-16T23:02:50.9779431+02:00" endTime="2025-09-16T23:02:50.9779432+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="2282e1b9-ff3c-421b-80fb-62e852b7ba71" />
+    <UnitTestResult executionId="6d79a54b-c95f-4509-8304-6e48314a4bad" testId="46bcd91f-5c38-841d-c5a0-4ecacdbbdd07" testName="LabelFilterTests.ForWrite_maps_correctly(input: &quot;dev&quot;, expected: &quot;dev&quot;)" computerName="shoppa-fw16-1" duration="00:00:00.0001080" startTime="2025-09-16T23:02:50.9594794+02:00" endTime="2025-09-16T23:02:50.9594794+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="6d79a54b-c95f-4509-8304-6e48314a4bad" />
+    <UnitTestResult executionId="deb3f6ef-9ef5-41cb-bdff-322be145dc93" testId="6de2d353-8914-63d9-5b40-fa699064c5a8" testName="LabelFilterTests.ForWrite_maps_correctly(input: &quot;&quot;, expected: null)" computerName="shoppa-fw16-1" duration="00:00:00.0001675" startTime="2025-09-16T23:02:50.9597647+02:00" endTime="2025-09-16T23:02:50.9597648+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="deb3f6ef-9ef5-41cb-bdff-322be145dc93" />
+    <UnitTestResult executionId="3c455e51-9bd9-4c45-a425-b49586473785" testId="4785ef82-9710-69b5-2b57-210f3f16bfdf" testName="ItemFilterTests.Map_range_any_label(start: 1, end: 2, expected: [0, 1])" computerName="shoppa-fw16-1" duration="00:00:00.0004366" startTime="2025-09-16T23:02:50.9776751+02:00" endTime="2025-09-16T23:02:50.9776751+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="3c455e51-9bd9-4c45-a425-b49586473785" />
+    <UnitTestResult executionId="782231bd-5e33-4678-93ec-8ca39d538bf8" testId="2d720e36-880f-a0e6-2031-f0c98301c725" testName="ItemFilterTests.Map_range_any_label(start: 1, end: 1, expected: [0])" computerName="shoppa-fw16-1" duration="00:00:00.0000173" startTime="2025-09-16T23:02:50.9781754+02:00" endTime="2025-09-16T23:02:50.9781754+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="782231bd-5e33-4678-93ec-8ca39d538bf8" />
+    <UnitTestResult executionId="c7757382-b830-48a6-a2e2-c63fd2241e81" testId="9b809a30-5296-a74c-13e3-ba3a9214922d" testName="ItemFilterTests.Visible_applies_regex_on_shortkey" computerName="shoppa-fw16-1" duration="00:00:00.0023311" startTime="2025-09-16T23:02:50.9797149+02:00" endTime="2025-09-16T23:02:50.9797149+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="c7757382-b830-48a6-a2e2-c63fd2241e81" />
+    <UnitTestResult executionId="d27a5f82-6e18-4402-834f-ae92f921931e" testId="420c2de5-eb14-37a1-3bc6-522122aec02c" testName="AppStateReconcilerTests.Deleted_that_is_gone_on_server_is_dropped" computerName="shoppa-fw16-1" duration="00:00:00.0124793" startTime="2025-09-16T23:02:50.9501930+02:00" endTime="2025-09-16T23:02:50.9502349+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="d27a5f82-6e18-4402-834f-ae92f921931e" />
+    <UnitTestResult executionId="065f709e-2042-41e7-b745-01c64a90501e" testId="37194a5b-9540-b72a-2fd8-3ed7b18ecc22" testName="ItemFilterTests.Map_range_out_of_bounds_returns_error" computerName="shoppa-fw16-1" duration="00:00:00.0001749" startTime="2025-09-16T23:02:50.9792360+02:00" endTime="2025-09-16T23:02:50.9792360+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="065f709e-2042-41e7-b745-01c64a90501e" />
+    <UnitTestResult executionId="1e46a8fa-4140-41a3-b209-a7b2acc5bcb2" testId="24ea7713-3960-4410-c389-bcc3b5fcbd39" testName="AppStateReconcilerTests.Modified_matching_server_becomes_Unchanged" computerName="shoppa-fw16-1" duration="00:00:00.0030484" startTime="2025-09-16T23:02:50.9767300+02:00" endTime="2025-09-16T23:02:50.9767300+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="1e46a8fa-4140-41a3-b209-a7b2acc5bcb2" />
+    <UnitTestResult executionId="7b6ec3ff-0175-418b-bed0-2a9cb3529941" testId="5855942d-8f64-0fc6-3511-75ab8f9c7264" testName="ItemFilterTests.Visible_literal_label_returns_only_that_label" computerName="shoppa-fw16-1" duration="00:00:00.0004584" startTime="2025-09-16T23:02:50.9799541+02:00" endTime="2025-09-16T23:02:50.9799541+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="7b6ec3ff-0175-418b-bed0-2a9cb3529941" />
+    <UnitTestResult executionId="185f0ac0-d6d1-4eea-8c86-c6c3fcce5a44" testId="99df7739-9d13-9497-17d5-a762f0dab85e" testName="LabelFilterTests.ForSelector_maps_correctly(input: &quot;prod&quot;, expected: &quot;prod&quot;)" computerName="shoppa-fw16-1" duration="00:00:00.0000113" startTime="2025-09-16T23:02:50.9589512+02:00" endTime="2025-09-16T23:02:50.9589512+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="185f0ac0-d6d1-4eea-8c86-c6c3fcce5a44" />
+    <UnitTestResult executionId="618408bf-5179-456a-9b2f-73ee8ce523c0" testId="3f47e510-cda8-38f6-3a2e-296a0aeb1605" testName="LabelFilterTests.ForSelector_maps_correctly(input: null, expected: null)" computerName="shoppa-fw16-1" duration="00:00:00.0112829" startTime="2025-09-16T23:02:50.9573033+02:00" endTime="2025-09-16T23:02:50.9573033+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="618408bf-5179-456a-9b2f-73ee8ce523c0" />
+    <UnitTestResult executionId="68f2e127-e229-40bb-9c59-193aebf93904" testId="7c9d88c3-7de9-19d6-9cb6-1e95f83f21c1" testName="ItemFilterTests.Map_range_literal_label_and_regex" computerName="shoppa-fw16-1" duration="00:00:00.0184927" startTime="2025-09-16T23:02:50.9771226+02:00" endTime="2025-09-16T23:02:50.9771226+02:00" testType="13cdc9d9-ddb5-4fa4-a97d-d965ccfc6d4b" outcome="Passed" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" relativeResultsDirectory="68f2e127-e229-40bb-9c59-193aebf93904" />
   </Results>
   <TestDefinitions>
-    <UnitTest name="AppStateReconcilerTests.Modified_matching_server_becomes_Unchanged" storage="/home/mattias/codex-appconfig/tests/appconfigcli.core.tests/bin/debug/net9.0/appconfigcli.core.tests.dll" id="24ea7713-3960-4410-c389-bcc3b5fcbd39">
-      <Execution id="2416d386-bdc7-4e9a-abc8-c1ff453da195" />
-      <TestMethod codeBase="/home/mattias/codex-appconfig/tests/AppConfigCli.Core.Tests/bin/Debug/net9.0/AppConfigCli.Core.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="AppStateReconcilerTests" name="Modified_matching_server_becomes_Unchanged" />
+    <UnitTest name="AppStateReconcilerTests.Deleted_that_is_gone_on_server_is_dropped" storage="/home/mattias/codex-appconfig/tests/appconfigcli.core.tests/bin/debug/net9.0/appconfigcli.core.tests.dll" id="420c2de5-eb14-37a1-3bc6-522122aec02c">
+      <Execution id="d27a5f82-6e18-4402-834f-ae92f921931e" />
+      <TestMethod codeBase="/home/mattias/codex-appconfig/tests/AppConfigCli.Core.Tests/bin/Debug/net9.0/AppConfigCli.Core.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="AppStateReconcilerTests" name="Deleted_that_is_gone_on_server_is_dropped" />
     </UnitTest>
-    <UnitTest name="LabelFilterTests.ForSelector_maps_correctly(input: null, expected: null)" storage="/home/mattias/codex-appconfig/tests/appconfigcli.core.tests/bin/debug/net9.0/appconfigcli.core.tests.dll" id="3f47e510-cda8-38f6-3a2e-296a0aeb1605">
-      <Execution id="a3cc4973-bcb4-490b-ba38-e6098eeacef3" />
+    <UnitTest name="ItemFilterTests.Map_range_any_label(start: 1, end: 1, expected: [0])" storage="/home/mattias/codex-appconfig/tests/appconfigcli.core.tests/bin/debug/net9.0/appconfigcli.core.tests.dll" id="2d720e36-880f-a0e6-2031-f0c98301c725">
+      <Execution id="782231bd-5e33-4678-93ec-8ca39d538bf8" />
+      <TestMethod codeBase="/home/mattias/codex-appconfig/tests/AppConfigCli.Core.Tests/bin/Debug/net9.0/AppConfigCli.Core.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="ItemFilterTests" name="Map_range_any_label" />
+    </UnitTest>
+    <UnitTest name="ItemFilterTests.Map_range_out_of_bounds_returns_error" storage="/home/mattias/codex-appconfig/tests/appconfigcli.core.tests/bin/debug/net9.0/appconfigcli.core.tests.dll" id="37194a5b-9540-b72a-2fd8-3ed7b18ecc22">
+      <Execution id="065f709e-2042-41e7-b745-01c64a90501e" />
+      <TestMethod codeBase="/home/mattias/codex-appconfig/tests/AppConfigCli.Core.Tests/bin/Debug/net9.0/AppConfigCli.Core.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="ItemFilterTests" name="Map_range_out_of_bounds_returns_error" />
+    </UnitTest>
+    <UnitTest name="ItemFilterTests.Map_range_any_label(start: 2, end: 3, expected: [1, 2])" storage="/home/mattias/codex-appconfig/tests/appconfigcli.core.tests/bin/debug/net9.0/appconfigcli.core.tests.dll" id="2f5b9956-c28d-49fa-fd3a-9c80cdbd33db">
+      <Execution id="2282e1b9-ff3c-421b-80fb-62e852b7ba71" />
+      <TestMethod codeBase="/home/mattias/codex-appconfig/tests/AppConfigCli.Core.Tests/bin/Debug/net9.0/AppConfigCli.Core.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="ItemFilterTests" name="Map_range_any_label" />
+    </UnitTest>
+    <UnitTest name="ItemFilterTests.Visible_literal_label_returns_only_that_label" storage="/home/mattias/codex-appconfig/tests/appconfigcli.core.tests/bin/debug/net9.0/appconfigcli.core.tests.dll" id="5855942d-8f64-0fc6-3511-75ab8f9c7264">
+      <Execution id="7b6ec3ff-0175-418b-bed0-2a9cb3529941" />
+      <TestMethod codeBase="/home/mattias/codex-appconfig/tests/AppConfigCli.Core.Tests/bin/Debug/net9.0/AppConfigCli.Core.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="ItemFilterTests" name="Visible_literal_label_returns_only_that_label" />
+    </UnitTest>
+    <UnitTest name="AppStateReconcilerTests.Modified_deleted_on_server_becomes_New" storage="/home/mattias/codex-appconfig/tests/appconfigcli.core.tests/bin/debug/net9.0/appconfigcli.core.tests.dll" id="185df21f-1c52-7a74-ae0a-070526063ed0">
+      <Execution id="33898fea-fe81-4f22-9fc8-2a94f2ebb2c2" />
+      <TestMethod codeBase="/home/mattias/codex-appconfig/tests/AppConfigCli.Core.Tests/bin/Debug/net9.0/AppConfigCli.Core.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="AppStateReconcilerTests" name="Modified_deleted_on_server_becomes_New" />
+    </UnitTest>
+    <UnitTest name="ItemFilterTests.Visible_unlabeled_returns_only_empty_label" storage="/home/mattias/codex-appconfig/tests/appconfigcli.core.tests/bin/debug/net9.0/appconfigcli.core.tests.dll" id="3035024e-cb3c-39b1-eba9-192ba9ed2f26">
+      <Execution id="b5f688aa-898d-4c4e-91ff-50ecbb6af763" />
+      <TestMethod codeBase="/home/mattias/codex-appconfig/tests/AppConfigCli.Core.Tests/bin/Debug/net9.0/AppConfigCli.Core.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="ItemFilterTests" name="Visible_unlabeled_returns_only_empty_label" />
+    </UnitTest>
+    <UnitTest name="ItemFilterTests.Map_range_any_label(start: 1, end: 2, expected: [0, 1])" storage="/home/mattias/codex-appconfig/tests/appconfigcli.core.tests/bin/debug/net9.0/appconfigcli.core.tests.dll" id="4785ef82-9710-69b5-2b57-210f3f16bfdf">
+      <Execution id="3c455e51-9bd9-4c45-a425-b49586473785" />
+      <TestMethod codeBase="/home/mattias/codex-appconfig/tests/AppConfigCli.Core.Tests/bin/Debug/net9.0/AppConfigCli.Core.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="ItemFilterTests" name="Map_range_any_label" />
+    </UnitTest>
+    <UnitTest name="ItemFilterTests.Map_range_literal_label_and_regex" storage="/home/mattias/codex-appconfig/tests/appconfigcli.core.tests/bin/debug/net9.0/appconfigcli.core.tests.dll" id="7c9d88c3-7de9-19d6-9cb6-1e95f83f21c1">
+      <Execution id="68f2e127-e229-40bb-9c59-193aebf93904" />
+      <TestMethod codeBase="/home/mattias/codex-appconfig/tests/AppConfigCli.Core.Tests/bin/Debug/net9.0/AppConfigCli.Core.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="ItemFilterTests" name="Map_range_literal_label_and_regex" />
+    </UnitTest>
+    <UnitTest name="LabelFilterTests.ForSelector_maps_correctly(input: &quot;prod&quot;, expected: &quot;prod&quot;)" storage="/home/mattias/codex-appconfig/tests/appconfigcli.core.tests/bin/debug/net9.0/appconfigcli.core.tests.dll" id="99df7739-9d13-9497-17d5-a762f0dab85e">
+      <Execution id="185f0ac0-d6d1-4eea-8c86-c6c3fcce5a44" />
       <TestMethod codeBase="/home/mattias/codex-appconfig/tests/AppConfigCli.Core.Tests/bin/Debug/net9.0/AppConfigCli.Core.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="LabelFilterTests" name="ForSelector_maps_correctly" />
     </UnitTest>
-    <UnitTest name="LabelFilterTests.ForWrite_maps_correctly(input: null, expected: null)" storage="/home/mattias/codex-appconfig/tests/appconfigcli.core.tests/bin/debug/net9.0/appconfigcli.core.tests.dll" id="9e9e30ae-91b6-58a0-625a-1cde020cb68c">
-      <Execution id="59dd5bae-c4f8-430a-98e9-b6729661d637" />
+    <UnitTest name="ItemFilterTests.Visible_applies_regex_on_shortkey" storage="/home/mattias/codex-appconfig/tests/appconfigcli.core.tests/bin/debug/net9.0/appconfigcli.core.tests.dll" id="9b809a30-5296-a74c-13e3-ba3a9214922d">
+      <Execution id="c7757382-b830-48a6-a2e2-c63fd2241e81" />
+      <TestMethod codeBase="/home/mattias/codex-appconfig/tests/AppConfigCli.Core.Tests/bin/Debug/net9.0/AppConfigCli.Core.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="ItemFilterTests" name="Visible_applies_regex_on_shortkey" />
+    </UnitTest>
+    <UnitTest name="LabelFilterTests.ForWrite_maps_correctly(input: &quot;dev&quot;, expected: &quot;dev&quot;)" storage="/home/mattias/codex-appconfig/tests/appconfigcli.core.tests/bin/debug/net9.0/appconfigcli.core.tests.dll" id="46bcd91f-5c38-841d-c5a0-4ecacdbbdd07">
+      <Execution id="6d79a54b-c95f-4509-8304-6e48314a4bad" />
       <TestMethod codeBase="/home/mattias/codex-appconfig/tests/AppConfigCli.Core.Tests/bin/Debug/net9.0/AppConfigCli.Core.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="LabelFilterTests" name="ForWrite_maps_correctly" />
     </UnitTest>
     <UnitTest name="LabelFilterTests.ForWrite_maps_correctly(input: &quot;prod&quot;, expected: &quot;prod&quot;)" storage="/home/mattias/codex-appconfig/tests/appconfigcli.core.tests/bin/debug/net9.0/appconfigcli.core.tests.dll" id="99f03c58-a80e-a3a9-bf9e-4ac8779a3bb8">
-      <Execution id="704a1eb3-4c91-401f-a163-cc45280547de" />
+      <Execution id="2cf9b16d-d512-4728-be28-5117f15ca013" />
       <TestMethod codeBase="/home/mattias/codex-appconfig/tests/AppConfigCli.Core.Tests/bin/Debug/net9.0/AppConfigCli.Core.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="LabelFilterTests" name="ForWrite_maps_correctly" />
     </UnitTest>
-    <UnitTest name="LabelFilterTests.ForSelector_maps_correctly(input: &quot;dev&quot;, expected: &quot;dev&quot;)" storage="/home/mattias/codex-appconfig/tests/appconfigcli.core.tests/bin/debug/net9.0/appconfigcli.core.tests.dll" id="8e4dfe9e-29fc-a433-20c2-c24a72a3a5a3">
-      <Execution id="b501e584-4654-4ab0-b357-4b8a7940b8a4" />
-      <TestMethod codeBase="/home/mattias/codex-appconfig/tests/AppConfigCli.Core.Tests/bin/Debug/net9.0/AppConfigCli.Core.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="LabelFilterTests" name="ForSelector_maps_correctly" />
-    </UnitTest>
-    <UnitTest name="AppStateReconcilerTests.Modified_deleted_on_server_becomes_New" storage="/home/mattias/codex-appconfig/tests/appconfigcli.core.tests/bin/debug/net9.0/appconfigcli.core.tests.dll" id="185df21f-1c52-7a74-ae0a-070526063ed0">
-      <Execution id="c961f79c-a98d-4222-8f22-dfe005a04a44" />
-      <TestMethod codeBase="/home/mattias/codex-appconfig/tests/AppConfigCli.Core.Tests/bin/Debug/net9.0/AppConfigCli.Core.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="AppStateReconcilerTests" name="Modified_deleted_on_server_becomes_New" />
-    </UnitTest>
-    <UnitTest name="LabelFilterTests.ForSelector_maps_correctly(input: &quot;&quot;, expected: &quot;\0&quot;)" storage="/home/mattias/codex-appconfig/tests/appconfigcli.core.tests/bin/debug/net9.0/appconfigcli.core.tests.dll" id="b8ed0044-c78b-22f1-4699-f739baf5a488">
-      <Execution id="2a2b75a0-0616-4acc-bcdc-d6f90dcc0aea" />
-      <TestMethod codeBase="/home/mattias/codex-appconfig/tests/AppConfigCli.Core.Tests/bin/Debug/net9.0/AppConfigCli.Core.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="LabelFilterTests" name="ForSelector_maps_correctly" />
-    </UnitTest>
-    <UnitTest name="LabelFilterTests.ForSelector_maps_correctly(input: &quot;prod&quot;, expected: &quot;prod&quot;)" storage="/home/mattias/codex-appconfig/tests/appconfigcli.core.tests/bin/debug/net9.0/appconfigcli.core.tests.dll" id="99df7739-9d13-9497-17d5-a762f0dab85e">
-      <Execution id="440e5302-fe0d-44dc-a0fc-8170773996a8" />
-      <TestMethod codeBase="/home/mattias/codex-appconfig/tests/AppConfigCli.Core.Tests/bin/Debug/net9.0/AppConfigCli.Core.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="LabelFilterTests" name="ForSelector_maps_correctly" />
+    <UnitTest name="LabelFilterTests.ForWrite_maps_correctly(input: null, expected: null)" storage="/home/mattias/codex-appconfig/tests/appconfigcli.core.tests/bin/debug/net9.0/appconfigcli.core.tests.dll" id="9e9e30ae-91b6-58a0-625a-1cde020cb68c">
+      <Execution id="d57d15c5-f641-42dd-a801-173219afbd31" />
+      <TestMethod codeBase="/home/mattias/codex-appconfig/tests/AppConfigCli.Core.Tests/bin/Debug/net9.0/AppConfigCli.Core.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="LabelFilterTests" name="ForWrite_maps_correctly" />
     </UnitTest>
     <UnitTest name="LabelFilterTests.ForWrite_maps_correctly(input: &quot;&quot;, expected: null)" storage="/home/mattias/codex-appconfig/tests/appconfigcli.core.tests/bin/debug/net9.0/appconfigcli.core.tests.dll" id="6de2d353-8914-63d9-5b40-fa699064c5a8">
-      <Execution id="144b2e0e-3fec-48c3-9160-7393f37a91c7" />
+      <Execution id="deb3f6ef-9ef5-41cb-bdff-322be145dc93" />
       <TestMethod codeBase="/home/mattias/codex-appconfig/tests/AppConfigCli.Core.Tests/bin/Debug/net9.0/AppConfigCli.Core.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="LabelFilterTests" name="ForWrite_maps_correctly" />
     </UnitTest>
-    <UnitTest name="LabelFilterTests.ForWrite_maps_correctly(input: &quot;dev&quot;, expected: &quot;dev&quot;)" storage="/home/mattias/codex-appconfig/tests/appconfigcli.core.tests/bin/debug/net9.0/appconfigcli.core.tests.dll" id="46bcd91f-5c38-841d-c5a0-4ecacdbbdd07">
-      <Execution id="2dad2d03-42dd-48d7-9137-aaa51f8edafe" />
-      <TestMethod codeBase="/home/mattias/codex-appconfig/tests/AppConfigCli.Core.Tests/bin/Debug/net9.0/AppConfigCli.Core.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="LabelFilterTests" name="ForWrite_maps_correctly" />
+    <UnitTest name="ItemFilterTests.Visible_any_label_returns_all" storage="/home/mattias/codex-appconfig/tests/appconfigcli.core.tests/bin/debug/net9.0/appconfigcli.core.tests.dll" id="9037fe3e-122a-e7cd-a5cf-b21cde9805b6">
+      <Execution id="a64b5622-0a6a-452c-b052-f4b52bfdf079" />
+      <TestMethod codeBase="/home/mattias/codex-appconfig/tests/AppConfigCli.Core.Tests/bin/Debug/net9.0/AppConfigCli.Core.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="ItemFilterTests" name="Visible_any_label_returns_all" />
     </UnitTest>
-    <UnitTest name="AppStateReconcilerTests.Deleted_that_is_gone_on_server_is_dropped" storage="/home/mattias/codex-appconfig/tests/appconfigcli.core.tests/bin/debug/net9.0/appconfigcli.core.tests.dll" id="420c2de5-eb14-37a1-3bc6-522122aec02c">
-      <Execution id="e8573aee-4a47-4683-a67f-393d855cc299" />
-      <TestMethod codeBase="/home/mattias/codex-appconfig/tests/AppConfigCli.Core.Tests/bin/Debug/net9.0/AppConfigCli.Core.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="AppStateReconcilerTests" name="Deleted_that_is_gone_on_server_is_dropped" />
+    <UnitTest name="LabelFilterTests.ForSelector_maps_correctly(input: &quot;&quot;, expected: &quot;\0&quot;)" storage="/home/mattias/codex-appconfig/tests/appconfigcli.core.tests/bin/debug/net9.0/appconfigcli.core.tests.dll" id="b8ed0044-c78b-22f1-4699-f739baf5a488">
+      <Execution id="fd476eac-afae-4b37-9a82-163d0ae4963b" />
+      <TestMethod codeBase="/home/mattias/codex-appconfig/tests/AppConfigCli.Core.Tests/bin/Debug/net9.0/AppConfigCli.Core.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="LabelFilterTests" name="ForSelector_maps_correctly" />
+    </UnitTest>
+    <UnitTest name="LabelFilterTests.ForSelector_maps_correctly(input: &quot;dev&quot;, expected: &quot;dev&quot;)" storage="/home/mattias/codex-appconfig/tests/appconfigcli.core.tests/bin/debug/net9.0/appconfigcli.core.tests.dll" id="8e4dfe9e-29fc-a433-20c2-c24a72a3a5a3">
+      <Execution id="3862180f-b032-4178-9506-b2f331551ac6" />
+      <TestMethod codeBase="/home/mattias/codex-appconfig/tests/AppConfigCli.Core.Tests/bin/Debug/net9.0/AppConfigCli.Core.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="LabelFilterTests" name="ForSelector_maps_correctly" />
+    </UnitTest>
+    <UnitTest name="AppStateReconcilerTests.Modified_matching_server_becomes_Unchanged" storage="/home/mattias/codex-appconfig/tests/appconfigcli.core.tests/bin/debug/net9.0/appconfigcli.core.tests.dll" id="24ea7713-3960-4410-c389-bcc3b5fcbd39">
+      <Execution id="1e46a8fa-4140-41a3-b209-a7b2acc5bcb2" />
+      <TestMethod codeBase="/home/mattias/codex-appconfig/tests/AppConfigCli.Core.Tests/bin/Debug/net9.0/AppConfigCli.Core.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="AppStateReconcilerTests" name="Modified_matching_server_becomes_Unchanged" />
+    </UnitTest>
+    <UnitTest name="LabelFilterTests.ForSelector_maps_correctly(input: null, expected: null)" storage="/home/mattias/codex-appconfig/tests/appconfigcli.core.tests/bin/debug/net9.0/appconfigcli.core.tests.dll" id="3f47e510-cda8-38f6-3a2e-296a0aeb1605">
+      <Execution id="618408bf-5179-456a-9b2f-73ee8ce523c0" />
+      <TestMethod codeBase="/home/mattias/codex-appconfig/tests/AppConfigCli.Core.Tests/bin/Debug/net9.0/AppConfigCli.Core.Tests.dll" adapterTypeName="executor://xunit/VsTestRunner2/netcoreapp" className="LabelFilterTests" name="ForSelector_maps_correctly" />
     </UnitTest>
   </TestDefinitions>
   <TestEntries>
-    <TestEntry testId="46bcd91f-5c38-841d-c5a0-4ecacdbbdd07" executionId="2dad2d03-42dd-48d7-9137-aaa51f8edafe" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
-    <TestEntry testId="185df21f-1c52-7a74-ae0a-070526063ed0" executionId="c961f79c-a98d-4222-8f22-dfe005a04a44" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
-    <TestEntry testId="420c2de5-eb14-37a1-3bc6-522122aec02c" executionId="e8573aee-4a47-4683-a67f-393d855cc299" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
-    <TestEntry testId="6de2d353-8914-63d9-5b40-fa699064c5a8" executionId="144b2e0e-3fec-48c3-9160-7393f37a91c7" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
-    <TestEntry testId="24ea7713-3960-4410-c389-bcc3b5fcbd39" executionId="2416d386-bdc7-4e9a-abc8-c1ff453da195" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
-    <TestEntry testId="b8ed0044-c78b-22f1-4699-f739baf5a488" executionId="2a2b75a0-0616-4acc-bcdc-d6f90dcc0aea" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
-    <TestEntry testId="99f03c58-a80e-a3a9-bf9e-4ac8779a3bb8" executionId="704a1eb3-4c91-401f-a163-cc45280547de" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
-    <TestEntry testId="8e4dfe9e-29fc-a433-20c2-c24a72a3a5a3" executionId="b501e584-4654-4ab0-b357-4b8a7940b8a4" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
-    <TestEntry testId="9e9e30ae-91b6-58a0-625a-1cde020cb68c" executionId="59dd5bae-c4f8-430a-98e9-b6729661d637" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
-    <TestEntry testId="99df7739-9d13-9497-17d5-a762f0dab85e" executionId="440e5302-fe0d-44dc-a0fc-8170773996a8" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
-    <TestEntry testId="3f47e510-cda8-38f6-3a2e-296a0aeb1605" executionId="a3cc4973-bcb4-490b-ba38-e6098eeacef3" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="9037fe3e-122a-e7cd-a5cf-b21cde9805b6" executionId="a64b5622-0a6a-452c-b052-f4b52bfdf079" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="99f03c58-a80e-a3a9-bf9e-4ac8779a3bb8" executionId="2cf9b16d-d512-4728-be28-5117f15ca013" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="8e4dfe9e-29fc-a433-20c2-c24a72a3a5a3" executionId="3862180f-b032-4178-9506-b2f331551ac6" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="185df21f-1c52-7a74-ae0a-070526063ed0" executionId="33898fea-fe81-4f22-9fc8-2a94f2ebb2c2" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="b8ed0044-c78b-22f1-4699-f739baf5a488" executionId="fd476eac-afae-4b37-9a82-163d0ae4963b" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="3035024e-cb3c-39b1-eba9-192ba9ed2f26" executionId="b5f688aa-898d-4c4e-91ff-50ecbb6af763" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="9e9e30ae-91b6-58a0-625a-1cde020cb68c" executionId="d57d15c5-f641-42dd-a801-173219afbd31" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="2f5b9956-c28d-49fa-fd3a-9c80cdbd33db" executionId="2282e1b9-ff3c-421b-80fb-62e852b7ba71" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="46bcd91f-5c38-841d-c5a0-4ecacdbbdd07" executionId="6d79a54b-c95f-4509-8304-6e48314a4bad" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="6de2d353-8914-63d9-5b40-fa699064c5a8" executionId="deb3f6ef-9ef5-41cb-bdff-322be145dc93" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="4785ef82-9710-69b5-2b57-210f3f16bfdf" executionId="3c455e51-9bd9-4c45-a425-b49586473785" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="2d720e36-880f-a0e6-2031-f0c98301c725" executionId="782231bd-5e33-4678-93ec-8ca39d538bf8" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="9b809a30-5296-a74c-13e3-ba3a9214922d" executionId="c7757382-b830-48a6-a2e2-c63fd2241e81" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="420c2de5-eb14-37a1-3bc6-522122aec02c" executionId="d27a5f82-6e18-4402-834f-ae92f921931e" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="37194a5b-9540-b72a-2fd8-3ed7b18ecc22" executionId="065f709e-2042-41e7-b745-01c64a90501e" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="24ea7713-3960-4410-c389-bcc3b5fcbd39" executionId="1e46a8fa-4140-41a3-b209-a7b2acc5bcb2" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="5855942d-8f64-0fc6-3511-75ab8f9c7264" executionId="7b6ec3ff-0175-418b-bed0-2a9cb3529941" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="99df7739-9d13-9497-17d5-a762f0dab85e" executionId="185f0ac0-d6d1-4eea-8c86-c6c3fcce5a44" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="3f47e510-cda8-38f6-3a2e-296a0aeb1605" executionId="618408bf-5179-456a-9b2f-73ee8ce523c0" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
+    <TestEntry testId="7c9d88c3-7de9-19d6-9cb6-1e95f83f21c1" executionId="68f2e127-e229-40bb-9c59-193aebf93904" testListId="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
   </TestEntries>
   <TestLists>
     <TestList name="Results Not in a List" id="8c84fa94-04c1-424b-9868-57a2d4851a1d" />
     <TestList name="All Loaded Results" id="19431567-8539-422a-85d7-44ee4e166bda" />
   </TestLists>
   <ResultSummary outcome="Completed">
-    <Counters total="11" executed="11" passed="11" failed="0" error="0" timeout="0" aborted="0" inconclusive="0" passedButRunAborted="0" notRunnable="0" notExecuted="0" disconnected="0" warning="0" completed="0" inProgress="0" pending="0" />
+    <Counters total="20" executed="20" passed="20" failed="0" error="0" timeout="0" aborted="0" inconclusive="0" passedButRunAborted="0" notRunnable="0" notExecuted="0" disconnected="0" warning="0" completed="0" inProgress="0" pending="0" />
     <Output>
       <StdOut>[xUnit.net 00:00:00.00] xUnit.net VSTest Adapter v2.8.2+699d445a1a (64-bit .NET 9.0.9)
-[xUnit.net 00:00:00.05]   Discovering: AppConfigCli.Core.Tests
+[xUnit.net 00:00:00.04]   Discovering: AppConfigCli.Core.Tests
 [xUnit.net 00:00:00.08]   Discovered:  AppConfigCli.Core.Tests
 [xUnit.net 00:00:00.08]   Starting:    AppConfigCli.Core.Tests
-[xUnit.net 00:00:00.17]   Finished:    AppConfigCli.Core.Tests
+[xUnit.net 00:00:00.16]   Finished:    AppConfigCli.Core.Tests
 </StdOut>
     </Output>
     <CollectorDataEntries>
