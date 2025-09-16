@@ -21,6 +21,17 @@ public static class FlatKeyMapper
         return root;
     }
 
+    public static Dictionary<string, object> BuildTree(IEnumerable<KeyValuePair<string, string>> flats, string separator)
+    {
+        var root = new Dictionary<string, object>(StringComparer.Ordinal);
+        foreach (var kv in flats)
+        {
+            var segments = kv.Key.Split(separator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
+            AddPath(root, segments, kv.Value);
+        }
+        return root;
+    }
+
     public static Dictionary<string, string> Flatten(object node, char separator)
     {
         var result = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -75,6 +86,68 @@ public static class FlatKeyMapper
                     else
                     {
                         // Coerce other scalars to string
+                        var k = string.Join(separator, stack.Reverse());
+                        result[k] = n.ToString() ?? string.Empty;
+                    }
+                    break;
+            }
+        }
+
+        Walk(node);
+        return result;
+    }
+
+    public static Dictionary<string, string> Flatten(object node, string separator)
+    {
+        var result = new Dictionary<string, string>(StringComparer.Ordinal);
+        var stack = new Stack<string>();
+
+        void Walk(object? n)
+        {
+            switch (n)
+            {
+                case null:
+                    break;
+                case string s:
+                    var key = string.Join(separator, stack.Reverse());
+                    result[key] = s;
+                    break;
+                case Dictionary<string, object> dict:
+                    if (dict.TryGetValue(NodeValueKey, out var raw))
+                    {
+                        var key2 = string.Join(separator, stack.Reverse());
+                        result[key2] = raw as string ?? string.Empty;
+                    }
+                    foreach (var kv in dict)
+                    {
+                        if (kv.Key == NodeValueKey) continue;
+                        stack.Push(kv.Key);
+                        Walk(kv.Value);
+                        stack.Pop();
+                    }
+                    break;
+                case List<object?> list:
+                    for (int i = 0; i < list.Count; i++)
+                    {
+                        stack.Push(i.ToString());
+                        Walk(list[i]);
+                        stack.Pop();
+                    }
+                    break;
+                default:
+                    if (n is IEnumerable enumerable && n is not string)
+                    {
+                        int i = 0;
+                        foreach (var el in enumerable)
+                        {
+                            stack.Push(i.ToString());
+                            Walk(el);
+                            stack.Pop();
+                            i++;
+                        }
+                    }
+                    else
+                    {
                         var k = string.Join(separator, stack.Reverse());
                         result[k] = n.ToString() ?? string.Empty;
                     }
@@ -220,4 +293,3 @@ public static class FlatKeyMapper
         while (list.Count < size) list.Add(null);
     }
 }
-

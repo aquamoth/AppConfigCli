@@ -1379,147 +1379,12 @@ internal sealed class EditorApp
 
         try
         {
-            // Helpers to construct nested structure with objects/arrays
-            void AddPathDict(Dictionary<string, object> node, string[] segments, string value)
-            {
-                if (segments.Length == 0)
-                {
-                    node["__value"] = value;
-                    return;
-                }
-                var head = segments[0];
-                if (!node.TryGetValue(head, out var child))
-                {
-                    if (segments.Length == 1)
-                    {
-                        node[head] = value;
-                        return;
-                    }
-                    bool nextIsIndex = int.TryParse(segments[1], out _);
-                    if (nextIsIndex)
-                    {
-                        var list = new List<object?>();
-                        node[head] = list;
-                        AddPathList(list, segments[1..], value);
-                    }
-                    else
-                    {
-                        var dict = new Dictionary<string, object>(StringComparer.Ordinal);
-                        node[head] = dict;
-                        AddPathDict(dict, segments[1..], value);
-                    }
-                }
-                else if (child is string s)
-                {
-                    bool nextIsIndex = segments.Length > 1 && int.TryParse(segments[1], out _);
-                    if (nextIsIndex)
-                    {
-                        var list = new List<object?>();
-                        node[head] = list;
-                        AddPathList(list, segments[1..], value);
-                    }
-                    else
-                    {
-                        var dict = new Dictionary<string, object>(StringComparer.Ordinal) { ["__value"] = s };
-                        node[head] = dict;
-                        AddPathDict(dict, segments[1..], value);
-                    }
-                }
-                else if (child is Dictionary<string, object> dict)
-                {
-                    if (segments.Length == 1)
-                    {
-                        dict["__value"] = value;
-                    }
-                    else
-                    {
-                        AddPathDict(dict, segments[1..], value);
-                    }
-                }
-                else if (child is List<object?> list)
-                {
-                    AddPathList(list, segments[1..], value);
-                }
-            }
+            // Build flats from visible items under active label
+            var flats = GetVisibleItems()
+                .Where(i => i.State != ItemState.Deleted)
+                .ToDictionary(i => i.ShortKey, i => i.Value ?? string.Empty, StringComparer.Ordinal);
 
-            void AddPathList(List<object?> list, string[] segments, string value)
-            {
-                if (segments.Length == 0) return; // nothing to set
-                var idxStr = segments[0];
-                if (!int.TryParse(idxStr, out int idx))
-                {
-                    // Treat non-numeric as object under the array element
-                    EnsureListSize(list, 1);
-                    var head = 0; // fallback index
-                    if (list[head] is not Dictionary<string, object> d)
-                    {
-                        d = new Dictionary<string, object>(StringComparer.Ordinal);
-                        list[head] = d;
-                    }
-                    AddPathDict(d, segments, value);
-                    return;
-                }
-                EnsureListSize(list, idx + 1);
-                var child = list[idx];
-                if (segments.Length == 1)
-                {
-                    list[idx] = value;
-                    return;
-                }
-                bool nextIsIndex = int.TryParse(segments[1], out _);
-                if (child is null)
-                {
-                    if (nextIsIndex)
-                    {
-                        var inner = new List<object?>();
-                        list[idx] = inner;
-                        AddPathList(inner, segments[1..], value);
-                    }
-                    else
-                    {
-                        var d = new Dictionary<string, object>(StringComparer.Ordinal);
-                        list[idx] = d;
-                        AddPathDict(d, segments[1..], value);
-                    }
-                }
-                else if (child is string s)
-                {
-                    if (nextIsIndex)
-                    {
-                        var inner = new List<object?>();
-                        list[idx] = inner;
-                        AddPathList(inner, segments[1..], value);
-                    }
-                    else
-                    {
-                        var d = new Dictionary<string, object>(StringComparer.Ordinal) { ["__value"] = s };
-                        list[idx] = d;
-                        AddPathDict(d, segments[1..], value);
-                    }
-                }
-                else if (child is Dictionary<string, object> d)
-                {
-                    AddPathDict(d, segments[1..], value);
-                }
-                else if (child is List<object?> l)
-                {
-                    AddPathList(l, segments[1..], value);
-                }
-            }
-
-            void EnsureListSize(List<object?> list, int size)
-            {
-                while (list.Count < size) list.Add(null);
-            }
-
-            // Build nested object (supports objects and arrays via numeric segments)
-            var root = new Dictionary<string, object>(StringComparer.Ordinal);
-            foreach (var it in GetVisibleItems().Where(i => i.State != ItemState.Deleted))
-            {
-                var path = it.ShortKey.Split(sep, StringSplitOptions.RemoveEmptyEntries);
-                AddPathToTree(root, path, it.Value ?? string.Empty);
-            }
-
+            var root = AppConfigCli.Core.FlatKeyMapper.BuildTree(flats, sep);
             var json = JsonSerializer.Serialize(root, new JsonSerializerOptions { WriteIndented = true });
             File.WriteAllText(file, json);
 
@@ -1547,7 +1412,7 @@ internal sealed class EditorApp
                 return;
             }
 
-            // Parse edited JSON
+            // Parse edited JSON via FlatKeyMapper
             Dictionary<string, string> parsed;
             try
             {
@@ -1560,44 +1425,41 @@ internal sealed class EditorApp
                     Console.ReadLine();
                     return;
                 }
-                parsed = new Dictionary<string, string>(StringComparer.Ordinal);
-                var stack = new Stack<string>();
-                void Walk(JsonElement el)
+
+                object Convert(JsonElement el)
                 {
-                    if (el.ValueKind == JsonValueKind.Object)
+                    switch (el.ValueKind)
                     {
-                        // Leaf value for current path if __value present
-                        if (el.TryGetProperty("__value", out var v))
+                        case JsonValueKind.Object:
                         {
-                            var sk = string.Join(sep, stack.Reverse());
-                            parsed[sk] = v.ValueKind == JsonValueKind.String ? v.GetString() ?? string.Empty : v.GetRawText();
+                            var d = new Dictionary<string, object>(StringComparer.Ordinal);
+                            foreach (var p in el.EnumerateObject())
+                            {
+                                d[p.Name] = Convert(p.Value);
+                            }
+                            return d;
                         }
-                        foreach (var prop in el.EnumerateObject())
+                        case JsonValueKind.Array:
                         {
-                            if (prop.NameEquals("__value")) continue;
-                            stack.Push(prop.Name);
-                            Walk(prop.Value);
-                            stack.Pop();
+                            var list = new List<object?>();
+                            foreach (var item in el.EnumerateArray())
+                                list.Add(Convert(item));
+                            return list;
                         }
-                    }
-                    else if (el.ValueKind == JsonValueKind.Array)
-                    {
-                        int idx = 0;
-                        foreach (var item in el.EnumerateArray())
-                        {
-                            stack.Push(idx.ToString());
-                            Walk(item);
-                            stack.Pop();
-                            idx++;
-                        }
-                    }
-                    else
-                    {
-                        var sk = string.Join(sep, stack.Reverse());
-                        parsed[sk] = el.ValueKind == JsonValueKind.String ? el.GetString() ?? string.Empty : el.GetRawText();
+                        case JsonValueKind.String:
+                            return el.GetString() ?? string.Empty;
+                        case JsonValueKind.Number:
+                        case JsonValueKind.True:
+                        case JsonValueKind.False:
+                        case JsonValueKind.Null:
+                            return el.GetRawText();
+                        default:
+                            return el.GetRawText();
                     }
                 }
-                Walk(doc.RootElement);
+
+                var node = Convert(doc.RootElement);
+                parsed = AppConfigCli.Core.FlatKeyMapper.Flatten(node, sep);
             }
             catch (JsonException jex)
             {
@@ -1864,14 +1726,11 @@ internal sealed class EditorApp
                 while (list.Count < size) list.Add(null);
             }
 
-            // Build nested object (supports objects and arrays via numeric segments)
-            var root = new Dictionary<string, object>(StringComparer.Ordinal);
-            foreach (var it in GetVisibleItems().Where(i => i.State != ItemState.Deleted))
-            {
-                var path = it.ShortKey.Split(sep, StringSplitOptions.RemoveEmptyEntries);
-                AddPathToTree(root, path, it.Value ?? string.Empty);
-            }
-
+            // Build flats and map to nested tree via FlatKeyMapper
+            var flats = GetVisibleItems()
+                .Where(i => i.State != ItemState.Deleted)
+                .ToDictionary(i => i.ShortKey, i => i.Value ?? string.Empty, StringComparer.Ordinal);
+            var root = AppConfigCli.Core.FlatKeyMapper.BuildTree(flats, sep);
             var serializer = new SerializerBuilder().Build();
             var yaml = serializer.Serialize(root);
             File.WriteAllText(file, yaml);
@@ -1900,58 +1759,52 @@ internal sealed class EditorApp
                 return;
             }
 
-            // Parse edited YAML
+            // Parse edited YAML via FlatKeyMapper
             Dictionary<string, string> parsed;
             try
             {
                 var text = File.ReadAllText(file);
                 var deserializer = new DeserializerBuilder().Build();
                 var rootObj = deserializer.Deserialize<object?>(text);
-                if (rootObj is not IDictionary<object, object> map)
+                if (rootObj is not IDictionary<object, object>)
                 {
                     Console.WriteLine("Top-level YAML must be a mapping/object.");
                     Console.WriteLine("Press Enter to continue...");
                     Console.ReadLine();
                     return;
                 }
-                parsed = new Dictionary<string, string>(StringComparer.Ordinal);
-                var stack = new Stack<string>();
 
-                void WalkYaml(object? node)
+                object ConvertYaml(object? n)
                 {
-                    if (node is IDictionary<object, object> dict)
+                    switch (n)
                     {
-                        if (dict.TryGetValue("__value", out var vv))
+                        case null:
+                            return string.Empty;
+                        case string s:
+                            return s;
+                        case IDictionary<object, object> d:
                         {
-                            var sk = string.Join(sep, stack.Reverse());
-                            parsed[sk] = vv is string vs ? vs : JsonSerializer.Serialize(vv);
+                            var dict = new Dictionary<string, object>(StringComparer.Ordinal);
+                            foreach (var kv in d)
+                            {
+                                dict[kv.Key?.ToString() ?? string.Empty] = ConvertYaml(kv.Value);
+                            }
+                            return dict;
                         }
-                        foreach (var kv in dict)
+                        case IEnumerable list when n is not string:
                         {
-                            if (kv.Key is string name && name == "__value") continue;
-                            var key = kv.Key?.ToString() ?? string.Empty;
-                            stack.Push(key);
-                            WalkYaml(kv.Value);
-                            stack.Pop();
+                            var l = new List<object?>();
+                            foreach (var item in list)
+                                l.Add(ConvertYaml(item));
+                            return l;
                         }
-                    }
-                    else if (node is IList list)
-                    {
-                        for (int i = 0; i < list.Count; i++)
-                        {
-                            stack.Push(i.ToString());
-                            WalkYaml(list[i]);
-                            stack.Pop();
-                        }
-                    }
-                    else
-                    {
-                        var sk = string.Join(sep, stack.Reverse());
-                        parsed[sk] = node is string s ? s : JsonSerializer.Serialize(node);
+                        default:
+                            return n.ToString() ?? string.Empty;
                     }
                 }
 
-                WalkYaml(map);
+                var node = ConvertYaml(rootObj);
+                parsed = AppConfigCli.Core.FlatKeyMapper.Flatten(node, sep);
             }
             catch (YamlDotNet.Core.YamlException yex)
             {
