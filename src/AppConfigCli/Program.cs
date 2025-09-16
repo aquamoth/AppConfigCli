@@ -1139,35 +1139,55 @@ internal sealed class EditorApp
         Console.WriteLine("Saving changes...");
         int changes = 0;
 
-        // Upserts
-        foreach (var item in _items.Where(i => i.State is ItemState.Modified or ItemState.New))
+        // Compute consolidated change set using Core.ChangeApplier
+        var mapper = new EditorMappers();
+        var coreItems = _items.Select(mapper.ToCoreItem).ToList();
+        var changeSet = AppConfigCli.Core.ChangeApplier.Compute(coreItems);
+
+        // Apply upserts (last-wins per key/label already handled in ChangeApplier)
+        foreach (var up in changeSet.Upserts)
         {
             try
             {
-                var setting = new ConfigurationSetting(item.FullKey, item.Value ?? string.Empty, AppConfigCli.Core.LabelFilter.ForWrite(item.Label));
+                var setting = new ConfigurationSetting(up.Key, up.Value ?? string.Empty, up.Label);
                 await _client.SetConfigurationSettingAsync(setting);
-                item.OriginalValue = item.Value;
-                item.State = ItemState.Unchanged;
+
+                // Mark all corresponding UI items as unchanged and sync OriginalValue
+                foreach (var it in _items.Where(i =>
+                    i.FullKey == up.Key &&
+                    string.Equals(AppConfigCli.Core.LabelFilter.ForWrite(i.Label), up.Label, StringComparison.Ordinal)).ToList())
+                {
+                    it.OriginalValue = it.Value;
+                    it.State = ItemState.Unchanged;
+                }
                 changes++;
             }
             catch (RequestFailedException ex)
             {
-                Console.WriteLine($"Failed to set '{item.ShortKey}': {ex.Message}");
+                Console.WriteLine($"Failed to set '{up.Key}': {ex.Message}");
             }
         }
 
-        // Deletions
-        foreach (var item in _items.Where(i => i.State == ItemState.Deleted).ToList())
+        // Apply deletions
+        foreach (var del in changeSet.Deletes)
         {
             try
             {
-                await _client.DeleteConfigurationSettingAsync(item.FullKey, AppConfigCli.Core.LabelFilter.ForWrite(item.Label));
-                _items.Remove(item);
+                await _client.DeleteConfigurationSettingAsync(del.Key, del.Label);
+                // Remove only items marked as Deleted for that key/label
+                for (int idx = _items.Count - 1; idx >= 0; idx--)
+                {
+                    var it = _items[idx];
+                    if (it.State != ItemState.Deleted) continue;
+                    if (it.FullKey != del.Key) continue;
+                    if (!string.Equals(AppConfigCli.Core.LabelFilter.ForWrite(it.Label), del.Label, StringComparison.Ordinal)) continue;
+                    _items.RemoveAt(idx);
+                }
                 changes++;
             }
             catch (RequestFailedException ex)
             {
-                Console.WriteLine($"Failed to delete '{item.ShortKey}': {ex.Message}");
+                Console.WriteLine($"Failed to delete '{del.Key}': {ex.Message}");
             }
         }
 
