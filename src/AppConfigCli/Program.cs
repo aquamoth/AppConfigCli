@@ -8,6 +8,10 @@ using System.Text.RegularExpressions;
 using System.Collections;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
+using AppConfigCli.Core;
+using CoreItem = AppConfigCli.Core.Item;
+using CoreItemState = AppConfigCli.Core.ItemState;
+using CoreConfigEntry = AppConfigCli.Core.ConfigEntry;
 
 namespace AppConfigCli;
 
@@ -550,89 +554,67 @@ internal sealed class EditorApp
 
     public async Task LoadAsync()
     {
-        // Capture local snapshot to reapply after fetch
-        var local = _items.ToDictionary(i => MakeKey(i.FullKey, i.Label), i => new
-        {
-            i.State,
-            i.Value,
-            i.OriginalValue
-        });
-
-        var fresh = new List<Item>();
-
+        // Build server snapshot
         var selector = new SettingSelector
         {
             KeyFilter = string.IsNullOrWhiteSpace(_prefix) ? "*" : _prefix + "*",
             LabelFilter = ToLabelFilter(_label)
         };
-
-        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var server = new List<CoreConfigEntry>();
         await foreach (var s in _client.GetConfigurationSettingsAsync(selector))
         {
-            var fullKey = s.Key;
-            var label = s.Label;
-            var shortKey = (!string.IsNullOrEmpty(_prefix) && fullKey.StartsWith(_prefix, StringComparison.Ordinal)) ? fullKey[_prefix.Length..] : fullKey;
-            var key = MakeKey(fullKey, label);
-            seen.Add(key);
-
-            if (local.TryGetValue(key, out var l))
+            server.Add(new CoreConfigEntry
             {
-                if (l.State == ItemState.Deleted)
-                {
-                    fresh.Add(new Item { FullKey = fullKey, ShortKey = shortKey, Label = label, OriginalValue = s.Value, Value = s.Value, State = ItemState.Deleted });
-                }
-                else if (l.State == ItemState.New)
-                {
-                    var localVal = l.Value ?? string.Empty;
-                    var state = string.Equals(localVal, s.Value, StringComparison.Ordinal) ? ItemState.Unchanged : ItemState.Modified;
-                    fresh.Add(new Item { FullKey = fullKey, ShortKey = shortKey, Label = label, OriginalValue = s.Value, Value = localVal, State = state });
-                }
-                else if (l.State == ItemState.Modified)
-                {
-                    var localVal = l.Value ?? string.Empty;
-                    if (string.Equals(localVal, s.Value, StringComparison.Ordinal))
-                        fresh.Add(new Item { FullKey = fullKey, ShortKey = shortKey, Label = label, OriginalValue = s.Value, Value = s.Value, State = ItemState.Unchanged });
-                    else
-                        fresh.Add(new Item { FullKey = fullKey, ShortKey = shortKey, Label = label, OriginalValue = s.Value, Value = localVal, State = ItemState.Modified });
-                }
-                else
-                {
-                    fresh.Add(new Item { FullKey = fullKey, ShortKey = shortKey, Label = label, OriginalValue = s.Value, Value = s.Value, State = ItemState.Unchanged });
-                }
-            }
-            else
-            {
-                fresh.Add(new Item { FullKey = fullKey, ShortKey = shortKey, Label = label, OriginalValue = s.Value, Value = s.Value, State = ItemState.Unchanged });
-            }
+                Key = s.Key,
+                Label = s.Label,
+                Value = s.Value ?? string.Empty
+            });
         }
 
-        // Add locals missing on server
-        foreach (var kv in local)
+        // Map local items to Core
+        CoreItemState MapToCore(ItemState st) => st switch
         {
-            if (seen.Contains(kv.Key)) continue;
-            SplitKey(kv.Key, out var fullKey, out var label);
-            var shortKey = (!string.IsNullOrEmpty(_prefix) && fullKey.StartsWith(_prefix, StringComparison.Ordinal)) ? fullKey[_prefix.Length..] : fullKey;
-            switch (kv.Value.State)
-            {
-                case ItemState.New:
-                    fresh.Add(new Item { FullKey = fullKey, ShortKey = shortKey, Label = label, OriginalValue = null, Value = kv.Value.Value, State = ItemState.New });
-                    break;
-                case ItemState.Modified:
-                    // Edited locally but deleted on server => treat as new
-                    fresh.Add(new Item { FullKey = fullKey, ShortKey = shortKey, Label = label, OriginalValue = null, Value = kv.Value.Value, State = ItemState.New });
-                    break;
-                case ItemState.Deleted:
-                    // Already gone on server, drop
-                    break;
-                default:
-                    // Unchanged but deleted server-side, drop
-                    break;
-            }
-        }
+            ItemState.New => CoreItemState.New,
+            ItemState.Modified => CoreItemState.Modified,
+            ItemState.Deleted => CoreItemState.Deleted,
+            _ => CoreItemState.Unchanged
+        };
 
-        fresh.Sort(CompareItems);
+        var local = _items.Select(i => new CoreItem
+        {
+            FullKey = i.FullKey,
+            ShortKey = i.ShortKey,
+            Label = i.Label,
+            OriginalValue = i.OriginalValue,
+            Value = i.Value,
+            State = MapToCore(i.State)
+        }).ToList();
+
+        var reconciler = new AppStateReconciler();
+        var freshCore = reconciler.Reconcile(_prefix ?? string.Empty, _label, local, server);
+
+        // Map back to UI items
+        ItemState MapFromCore(CoreItemState st) => st switch
+        {
+            CoreItemState.New => ItemState.New,
+            CoreItemState.Modified => ItemState.Modified,
+            CoreItemState.Deleted => ItemState.Deleted,
+            _ => ItemState.Unchanged
+        };
+
         _items.Clear();
-        _items.AddRange(fresh);
+        foreach (var it in freshCore)
+        {
+            _items.Add(new Item
+            {
+                FullKey = it.FullKey,
+                ShortKey = it.ShortKey,
+                Label = it.Label,
+                OriginalValue = it.OriginalValue,
+                Value = it.Value,
+                State = MapFromCore(it.State)
+            });
+        }
     }
 
     public async Task RunAsync()

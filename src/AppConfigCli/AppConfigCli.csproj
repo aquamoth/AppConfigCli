@@ -10,4 +10,7 @@
     <PackageReference Include="Azure.Identity" Version="1.11.4" />
     <PackageReference Include="YamlDotNet" Version="13.7.1" />
   </ItemGroup>
+  <ItemGroup>
+    <ProjectReference Include="../AppConfigCli.Core/AppConfigCli.Core.csproj" />
+  </ItemGroup>
 </Project>
