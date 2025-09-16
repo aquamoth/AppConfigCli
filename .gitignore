@@ -16,3 +16,5 @@ Thumbs.db
 # Local environment
 .env
 *.local.json
+
+coveragereport/

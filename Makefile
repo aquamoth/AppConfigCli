@@ -1,4 +1,4 @@
-.PHONY: build run restore
+.PHONY: build run restore coverage tools
 
 restore:
 	dotnet restore src/AppConfigCli || true
@@ -12,3 +12,11 @@ run:
 	fi
 	dotnet run --project src/AppConfigCli -- --prefix $(prefix) --label $(label)
 
+tools:
+	dotnet tool restore
+
+coverage: tools
+	@rm -rf coveragereport || true
+	dotnet test --collect:"XPlat Code Coverage" -v minimal
+	dotnet tool run reportgenerator -reports:tests/**/TestResults/*/coverage.cobertura.xml -targetdir:coveragereport -reporttypes:"Html;HtmlSummary"
+	@echo "Coverage report: coveragereport/index.html"

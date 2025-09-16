@@ -571,49 +571,17 @@ internal sealed class EditorApp
             });
         }
 
-        // Map local items to Core
-        CoreItemState MapToCore(ItemState st) => st switch
-        {
-            ItemState.New => CoreItemState.New,
-            ItemState.Modified => CoreItemState.Modified,
-            ItemState.Deleted => CoreItemState.Deleted,
-            _ => CoreItemState.Unchanged
-        };
-
-        var local = _items.Select(i => new CoreItem
-        {
-            FullKey = i.FullKey,
-            ShortKey = i.ShortKey,
-            Label = i.Label,
-            OriginalValue = i.OriginalValue,
-            Value = i.Value,
-            State = MapToCore(i.State)
-        }).ToList();
+        // Map local items to Core using Mapperly
+        var mapper = new EditorMappers();
+        var local = _items.Select(mapper.ToCoreItem).ToList();
 
         var reconciler = new AppStateReconciler();
         var freshCore = reconciler.Reconcile(_prefix ?? string.Empty, _label, local, server);
 
-        // Map back to UI items
-        ItemState MapFromCore(CoreItemState st) => st switch
-        {
-            CoreItemState.New => ItemState.New,
-            CoreItemState.Modified => ItemState.Modified,
-            CoreItemState.Deleted => ItemState.Deleted,
-            _ => ItemState.Unchanged
-        };
-
         _items.Clear();
         foreach (var it in freshCore)
         {
-            _items.Add(new Item
-            {
-                FullKey = it.FullKey,
-                ShortKey = it.ShortKey,
-                Label = it.Label,
-                OriginalValue = it.OriginalValue,
-                Value = it.Value,
-                State = MapFromCore(it.State)
-            });
+            _items.Add(mapper.ToUiItem(it));
         }
     }
 

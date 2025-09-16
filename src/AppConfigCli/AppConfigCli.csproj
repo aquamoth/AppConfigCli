@@ -9,6 +9,7 @@
     <PackageReference Include="Azure.Data.AppConfiguration" Version="1.6.0" />
     <PackageReference Include="Azure.Identity" Version="1.11.4" />
     <PackageReference Include="YamlDotNet" Version="13.7.1" />
+    <PackageReference Include="Riok.Mapperly" Version="4.2.0" PrivateAssets="all" />
   </ItemGroup>
   <ItemGroup>
     <ProjectReference Include="../AppConfigCli.Core/AppConfigCli.Core.csproj" />
