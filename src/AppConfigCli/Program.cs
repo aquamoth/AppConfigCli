@@ -5,6 +5,9 @@ using Azure.Identity;
 using Azure.Core;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using System.Collections;
+using YamlDotNet.Serialization;
+using YamlDotNet.Serialization.NamingConventions;
 
 namespace AppConfigCli;
 
@@ -69,6 +72,138 @@ internal class Program
         var app = new EditorApp(client, options.Prefix, options.Label, whoAmIAction, authModeDesc);
         try
         {
+            // Helpers to construct nested structure with objects/arrays
+            void AddPathDict(Dictionary<string, object> node, string[] segments, string value)
+            {
+                if (segments.Length == 0)
+                {
+                    node["__value"] = value;
+                    return;
+                }
+                var head = segments[0];
+                if (!node.TryGetValue(head, out var child))
+                {
+                    if (segments.Length == 1)
+                    {
+                        node[head] = value;
+                        return;
+                    }
+                    bool nextIsIndex = int.TryParse(segments[1], out _);
+                    if (nextIsIndex)
+                    {
+                        var list = new List<object?>();
+                        node[head] = list;
+                        AddPathList(list, segments[1..], value);
+                    }
+                    else
+                    {
+                        var dict = new Dictionary<string, object>(StringComparer.Ordinal);
+                        node[head] = dict;
+                        AddPathDict(dict, segments[1..], value);
+                    }
+                }
+                else if (child is string s)
+                {
+                    bool nextIsIndex = segments.Length > 1 && int.TryParse(segments[1], out _);
+                    if (nextIsIndex)
+                    {
+                        var list = new List<object?>();
+                        node[head] = list;
+                        AddPathList(list, segments[1..], value);
+                    }
+                    else
+                    {
+                        var dict = new Dictionary<string, object>(StringComparer.Ordinal) { ["__value"] = s };
+                        node[head] = dict;
+                        AddPathDict(dict, segments[1..], value);
+                    }
+                }
+                else if (child is Dictionary<string, object> dict)
+                {
+                    if (segments.Length == 1)
+                    {
+                        dict["__value"] = value;
+                    }
+                    else
+                    {
+                        AddPathDict(dict, segments[1..], value);
+                    }
+                }
+                else if (child is List<object?> list)
+                {
+                    AddPathList(list, segments[1..], value);
+                }
+            }
+
+            void AddPathList(List<object?> list, string[] segments, string value)
+            {
+                if (segments.Length == 0) return; // nothing to set
+                var idxStr = segments[0];
+                if (!int.TryParse(idxStr, out int idx))
+                {
+                    // Treat non-numeric as object under the array element
+                    EnsureListSize(list, 1);
+                    var head = 0; // fallback index
+                    if (list[head] is not Dictionary<string, object> d)
+                    {
+                        d = new Dictionary<string, object>(StringComparer.Ordinal);
+                        list[head] = d;
+                    }
+                    AddPathDict(d, segments, value);
+                    return;
+                }
+                EnsureListSize(list, idx + 1);
+                var child = list[idx];
+                if (segments.Length == 1)
+                {
+                    list[idx] = value;
+                    return;
+                }
+                bool nextIsIndex = int.TryParse(segments[1], out _);
+                if (child is null)
+                {
+                    if (nextIsIndex)
+                    {
+                        var inner = new List<object?>();
+                        list[idx] = inner;
+                        AddPathList(inner, segments[1..], value);
+                    }
+                    else
+                    {
+                        var d = new Dictionary<string, object>(StringComparer.Ordinal);
+                        list[idx] = d;
+                        AddPathDict(d, segments[1..], value);
+                    }
+                }
+                else if (child is string s)
+                {
+                    if (nextIsIndex)
+                    {
+                        var inner = new List<object?>();
+                        list[idx] = inner;
+                        AddPathList(inner, segments[1..], value);
+                    }
+                    else
+                    {
+                        var d = new Dictionary<string, object>(StringComparer.Ordinal) { ["__value"] = s };
+                        list[idx] = d;
+                        AddPathDict(d, segments[1..], value);
+                    }
+                }
+                else if (child is Dictionary<string, object> d)
+                {
+                    AddPathDict(d, segments[1..], value);
+                }
+                else if (child is List<object?> l)
+                {
+                    AddPathList(l, segments[1..], value);
+                }
+            }
+
+            void EnsureListSize(List<object?> list, int size)
+            {
+                while (list.Count < size) list.Add(null);
+            }
             await app.LoadAsync();
             await app.RunAsync();
             return 0;
@@ -545,6 +680,9 @@ internal sealed class EditorApp
                 case "json":
                     await OpenJsonInEditorAsync(parts.Skip(1).ToArray());
                     break;
+                case "yaml":
+                    await OpenYamlInEditorAsync(parts.Skip(1).ToArray());
+                    break;
                 case "label":
                 case "l":
                     await ChangeLabelAsync(parts.Skip(1).ToArray());
@@ -678,7 +816,7 @@ internal sealed class EditorApp
         }
 
         Console.WriteLine();
-        Console.WriteLine("Commands: a|add, c|copy <n> [m], d|delete <n> [m], e|edit <n>, g|grep [regex], h|help, json <sep>, l|label [value], o|open, p|prefix [value], q|quit, r|reload, s|save, u|undo <n> [m]|all, w|whoami");
+        Console.WriteLine("Commands: a|add, c|copy <n> [m], d|delete <n> [m], e|edit <n>, g|grep [regex], h|help, json <sep>, yaml <sep>, l|label [value], o|open, p|prefix [value], q|quit, r|reload, s|save, u|undo <n> [m]|all, w|whoami");
     }
 
     private void ShowHelp()
@@ -693,6 +831,7 @@ internal sealed class EditorApp
         Console.WriteLine("g|grep [regex]   Set key regex filter (no arg clears)");
         Console.WriteLine("h|help|?         Show this help");
         Console.WriteLine("json <sep>       Edit visible items as nested JSON split by <sep>");
+        Console.WriteLine("yaml <sep>       Edit visible items as nested YAML split by <sep>");
         Console.WriteLine("o|open           Edit all visible items in external editor");
         Console.WriteLine("p|prefix [value] Change prefix (no arg prompts)");
         Console.WriteLine("l|label [value]  Change label filter (no arg clears; '-' = empty label)");
@@ -1290,12 +1429,145 @@ internal sealed class EditorApp
 
         try
         {
+            // Helpers to construct nested structure with objects/arrays
+            void AddPathDict(Dictionary<string, object> node, string[] segments, string value)
+            {
+                if (segments.Length == 0)
+                {
+                    node["__value"] = value;
+                    return;
+                }
+                var head = segments[0];
+                if (!node.TryGetValue(head, out var child))
+                {
+                    if (segments.Length == 1)
+                    {
+                        node[head] = value;
+                        return;
+                    }
+                    bool nextIsIndex = int.TryParse(segments[1], out _);
+                    if (nextIsIndex)
+                    {
+                        var list = new List<object?>();
+                        node[head] = list;
+                        AddPathList(list, segments[1..], value);
+                    }
+                    else
+                    {
+                        var dict = new Dictionary<string, object>(StringComparer.Ordinal);
+                        node[head] = dict;
+                        AddPathDict(dict, segments[1..], value);
+                    }
+                }
+                else if (child is string s)
+                {
+                    bool nextIsIndex = segments.Length > 1 && int.TryParse(segments[1], out _);
+                    if (nextIsIndex)
+                    {
+                        var list = new List<object?>();
+                        node[head] = list;
+                        AddPathList(list, segments[1..], value);
+                    }
+                    else
+                    {
+                        var dict = new Dictionary<string, object>(StringComparer.Ordinal) { ["__value"] = s };
+                        node[head] = dict;
+                        AddPathDict(dict, segments[1..], value);
+                    }
+                }
+                else if (child is Dictionary<string, object> dict)
+                {
+                    if (segments.Length == 1)
+                    {
+                        dict["__value"] = value;
+                    }
+                    else
+                    {
+                        AddPathDict(dict, segments[1..], value);
+                    }
+                }
+                else if (child is List<object?> list)
+                {
+                    AddPathList(list, segments[1..], value);
+                }
+            }
+
+            void AddPathList(List<object?> list, string[] segments, string value)
+            {
+                if (segments.Length == 0) return; // nothing to set
+                var idxStr = segments[0];
+                if (!int.TryParse(idxStr, out int idx))
+                {
+                    // Treat non-numeric as object under the array element
+                    EnsureListSize(list, 1);
+                    var head = 0; // fallback index
+                    if (list[head] is not Dictionary<string, object> d)
+                    {
+                        d = new Dictionary<string, object>(StringComparer.Ordinal);
+                        list[head] = d;
+                    }
+                    AddPathDict(d, segments, value);
+                    return;
+                }
+                EnsureListSize(list, idx + 1);
+                var child = list[idx];
+                if (segments.Length == 1)
+                {
+                    list[idx] = value;
+                    return;
+                }
+                bool nextIsIndex = int.TryParse(segments[1], out _);
+                if (child is null)
+                {
+                    if (nextIsIndex)
+                    {
+                        var inner = new List<object?>();
+                        list[idx] = inner;
+                        AddPathList(inner, segments[1..], value);
+                    }
+                    else
+                    {
+                        var d = new Dictionary<string, object>(StringComparer.Ordinal);
+                        list[idx] = d;
+                        AddPathDict(d, segments[1..], value);
+                    }
+                }
+                else if (child is string s)
+                {
+                    if (nextIsIndex)
+                    {
+                        var inner = new List<object?>();
+                        list[idx] = inner;
+                        AddPathList(inner, segments[1..], value);
+                    }
+                    else
+                    {
+                        var d = new Dictionary<string, object>(StringComparer.Ordinal) { ["__value"] = s };
+                        list[idx] = d;
+                        AddPathDict(d, segments[1..], value);
+                    }
+                }
+                else if (child is Dictionary<string, object> d)
+                {
+                    AddPathDict(d, segments[1..], value);
+                }
+                else if (child is List<object?> l)
+                {
+                    AddPathList(l, segments[1..], value);
+                }
+            }
+
+            void EnsureListSize(List<object?> list, int size)
+            {
+                while (list.Count < size) list.Add(null);
+            }
+
             // Build nested object (supports objects and arrays via numeric segments)
             var root = new Dictionary<string, object>(StringComparer.Ordinal);
             foreach (var it in GetVisibleItems().Where(i => i.State != ItemState.Deleted))
             {
                 var path = it.ShortKey.Split(sep, StringSplitOptions.RemoveEmptyEntries);
-                AddPathDict(root, path, it.Value ?? string.Empty);
+                AddPathToTree(root, path, it.Value ?? string.Empty);
             }
 
             var json = JsonSerializer.Serialize(root, new JsonSerializerOptions { WriteIndented = true });
@@ -1471,7 +1743,45 @@ internal sealed class EditorApp
             Console.WriteLine($"JSON edit applied for label [{(_label?.Length == 0 ? "(none)" : _label) ?? "(any)"}]: {created} added, {updated} updated, {deleted} deleted.");
             Console.WriteLine("Press Enter to continue...");
             Console.ReadLine();
+        }
+        finally
+        {
+            try { if (File.Exists(file)) File.Delete(file); } catch { }
+        }
+    }
 
+    private async Task OpenYamlInEditorAsync(string[] args)
+    {
+        if (_label is null)
+        {
+            Console.WriteLine("yaml requires an active label filter. Set one with l|label <value> first.");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+            return;
+        }
+
+        if (args.Length == 0)
+        {
+            Console.WriteLine("Usage: yaml <separator>   e.g., yaml :");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+            return;
+        }
+
+        var sep = string.Join(' ', args);
+        if (string.IsNullOrEmpty(sep))
+        {
+            Console.WriteLine("Separator cannot be empty.");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+            return;
+        }
+
+        string tmpDir = Path.GetTempPath();
+        string file = Path.Combine(tmpDir, $"appconfig-yaml-{Guid.NewGuid():N}.yaml");
+
+        try
+        {
             void AddPathDict(Dictionary<string, object> node, string[] segments, string value)
             {
                 if (segments.Length == 0)
@@ -1542,7 +1852,7 @@ internal sealed class EditorApp
                 {
                     // Treat non-numeric as object under the array element
                     EnsureListSize(list, 1);
-                    var head = 0; // not ideal, but fallback: create single object at [0]
+                    var head = 0; // fallback index
                     if (list[head] is not Dictionary<string, object> d)
                     {
                         d = new Dictionary<string, object>(StringComparer.Ordinal);
@@ -1603,6 +1913,189 @@ internal sealed class EditorApp
             {
                 while (list.Count < size) list.Add(null);
             }
+
+            // Build nested object (supports objects and arrays via numeric segments)
+            var root = new Dictionary<string, object>(StringComparer.Ordinal);
+            foreach (var it in GetVisibleItems().Where(i => i.State != ItemState.Deleted))
+            {
+                var path = it.ShortKey.Split(sep, StringSplitOptions.RemoveEmptyEntries);
+                AddPathToTree(root, path, it.Value ?? string.Empty);
+            }
+
+            var serializer = new SerializerBuilder().Build();
+            var yaml = serializer.Serialize(root);
+            File.WriteAllText(file, yaml);
+
+            // Launch editor
+            var (editorExe, editorArgsFormat) = GetDefaultEditor();
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = editorExe,
+                Arguments = string.Format(editorArgsFormat, QuoteIfNeeded(file)),
+                UseShellExecute = false,
+                RedirectStandardInput = false,
+                RedirectStandardOutput = false,
+                RedirectStandardError = false,
+            };
+            try
+            {
+                using var proc = System.Diagnostics.Process.Start(psi);
+                proc?.WaitForExit();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to launch editor '{editorExe}': {ex.Message}");
+                Console.WriteLine("Press Enter to continue...");
+                Console.ReadLine();
+                return;
+            }
+
+            // Parse edited YAML
+            Dictionary<string, string> parsed;
+            try
+            {
+                var text = File.ReadAllText(file);
+                var deserializer = new DeserializerBuilder().Build();
+                var rootObj = deserializer.Deserialize<object?>(text);
+                if (rootObj is not IDictionary<object, object> map)
+                {
+                    Console.WriteLine("Top-level YAML must be a mapping/object.");
+                    Console.WriteLine("Press Enter to continue...");
+                    Console.ReadLine();
+                    return;
+                }
+                parsed = new Dictionary<string, string>(StringComparer.Ordinal);
+                var stack = new Stack<string>();
+
+                void WalkYaml(object? node)
+                {
+                    if (node is IDictionary<object, object> dict)
+                    {
+                        if (dict.TryGetValue("__value", out var vv))
+                        {
+                            var sk = string.Join(sep, stack.Reverse());
+                            parsed[sk] = vv is string vs ? vs : JsonSerializer.Serialize(vv);
+                        }
+                        foreach (var kv in dict)
+                        {
+                            if (kv.Key is string name && name == "__value") continue;
+                            var key = kv.Key?.ToString() ?? string.Empty;
+                            stack.Push(key);
+                            WalkYaml(kv.Value);
+                            stack.Pop();
+                        }
+                    }
+                    else if (node is IList list)
+                    {
+                        for (int i = 0; i < list.Count; i++)
+                        {
+                            stack.Push(i.ToString());
+                            WalkYaml(list[i]);
+                            stack.Pop();
+                        }
+                    }
+                    else
+                    {
+                        var sk = string.Join(sep, stack.Reverse());
+                        parsed[sk] = node is string s ? s : JsonSerializer.Serialize(node);
+                    }
+                }
+
+                WalkYaml(map);
+            }
+            catch (YamlDotNet.Core.YamlException yex)
+            {
+                var mark = yex.Start;
+                Console.WriteLine($"Invalid YAML at line {mark.Line}, column {mark.Column}: {yex.Message}");
+                Console.WriteLine("Press Enter to continue...");
+                Console.ReadLine();
+                return;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Invalid YAML: {ex.Message}");
+                Console.WriteLine("Press Enter to continue...");
+                Console.ReadLine();
+                return;
+            }
+
+            // Current visible map
+            var current = GetVisibleItems().Where(i => i.State != ItemState.Deleted)
+                                           .ToDictionary(i => i.ShortKey, i => i, StringComparer.Ordinal);
+
+            int created = 0, updated = 0, deleted = 0;
+
+            // Deletions
+            foreach (var kv in current)
+            {
+                if (!parsed.ContainsKey(kv.Key))
+                {
+                    var item = kv.Value;
+                    if (item.IsNew)
+                    {
+                        _items.Remove(item);
+                    }
+                    else
+                    {
+                        item.State = ItemState.Deleted;
+                    }
+                    deleted++;
+                }
+            }
+
+            // Additions/Updates
+            foreach (var kv in parsed)
+            {
+                var shortKey = kv.Key;
+                var newVal = kv.Value;
+                if (current.TryGetValue(shortKey, out var existing))
+                {
+                    existing.Value = newVal;
+                    if (!existing.IsNew)
+                    {
+                        existing.State = string.Equals(existing.OriginalValue ?? string.Empty, newVal, StringComparison.Ordinal)
+                            ? ItemState.Unchanged
+                            : ItemState.Modified;
+                    }
+                    updated++;
+                }
+                else
+                {
+                    // Resurrect if previously deleted
+                    var resurrect = _items.FirstOrDefault(i =>
+                        string.Equals(i.ShortKey, shortKey, StringComparison.Ordinal) &&
+                        string.Equals(i.Label ?? string.Empty, _label ?? string.Empty, StringComparison.Ordinal) &&
+                        i.State == ItemState.Deleted);
+                    if (resurrect is not null)
+                    {
+                        resurrect.Value = newVal;
+                        resurrect.State = string.Equals(resurrect.OriginalValue ?? string.Empty, newVal, StringComparison.Ordinal)
+                            ? ItemState.Unchanged
+                            : ItemState.Modified;
+                        updated++;
+                    }
+                    else
+                    {
+                        var fullKey = (_prefix ?? string.Empty) + shortKey;
+                        _items.Add(new Item
+                        {
+                            FullKey = fullKey,
+                            ShortKey = shortKey,
+                            Label = _label,
+                            OriginalValue = null,
+                            Value = newVal,
+                            State = ItemState.New
+                        });
+                        created++;
+                    }
+                }
+            }
+
+            ConsolidateDuplicates();
+            _items.Sort(CompareItems);
+            Console.WriteLine($"YAML edit applied for label [{(_label?.Length == 0 ? "(none)" : _label) ?? "(any)"}]: {created} added, {updated} updated, {deleted} deleted.");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
         }
         finally
         {
@@ -1894,6 +2387,138 @@ internal sealed class EditorApp
     {
         if (_keyRegex is null) return new List<Item>(_items);
         return _items.Where(i => _keyRegex.IsMatch(i.ShortKey)).ToList();
+    }
+
+    // Helpers for building nested object/list structure from split keys
+    private void AddPathToTree(Dictionary<string, object> node, string[] segments, string value)
+    {
+        if (segments.Length == 0)
+        {
+            node["__value"] = value;
+            return;
+        }
+        var head = segments[0];
+        if (!node.TryGetValue(head, out var child))
+        {
+            if (segments.Length == 1)
+            {
+                node[head] = value;
+                return;
+            }
+            bool nextIsIndex = int.TryParse(segments[1], out _);
+            if (nextIsIndex)
+            {
+                var list = new List<object?>();
+                node[head] = list;
+                AddPathToList(list, segments[1..], value);
+            }
+            else
+            {
+                var dict = new Dictionary<string, object>(StringComparer.Ordinal);
+                node[head] = dict;
+                AddPathToTree(dict, segments[1..], value);
+            }
+        }
+        else if (child is string s)
+        {
+            bool nextIsIndex = segments.Length > 1 && int.TryParse(segments[1], out _);
+            if (nextIsIndex)
+            {
+                var list = new List<object?>();
+                node[head] = list;
+                AddPathToList(list, segments[1..], value);
+            }
+            else
+            {
+                var dict = new Dictionary<string, object>(StringComparer.Ordinal) { ["__value"] = s };
+                node[head] = dict;
+                AddPathToTree(dict, segments[1..], value);
+            }
+        }
+        else if (child is Dictionary<string, object> dict)
+        {
+            if (segments.Length == 1)
+            {
+                dict["__value"] = value;
+            }
+            else
+            {
+                AddPathToTree(dict, segments[1..], value);
+            }
+        }
+        else if (child is List<object?> list)
+        {
+            AddPathToList(list, segments[1..], value);
+        }
+    }
+
+    private void AddPathToList(List<object?> list, string[] segments, string value)
+    {
+        if (segments.Length == 0) return;
+        var idxStr = segments[0];
+        if (!int.TryParse(idxStr, out int idx))
+        {
+            EnsureListSize(list, 1);
+            var head = 0;
+            if (list[head] is not Dictionary<string, object> d)
+            {
+                d = new Dictionary<string, object>(StringComparer.Ordinal);
+                list[head] = d;
+            }
+            AddPathToTree(d, segments, value);
+            return;
+        }
+        EnsureListSize(list, idx + 1);
+        var child = list[idx];
+        if (segments.Length == 1)
+        {
+            list[idx] = value;
+            return;
+        }
+        bool nextIsIndex = int.TryParse(segments[1], out _);
+        if (child is null)
+        {
+            if (nextIsIndex)
+            {
+                var inner = new List<object?>();
+                list[idx] = inner;
+                AddPathToList(inner, segments[1..], value);
+            }
+            else
+            {
+                var d = new Dictionary<string, object>(StringComparer.Ordinal);
+                list[idx] = d;
+                AddPathToTree(d, segments[1..], value);
+            }
+        }
+        else if (child is string s)
+        {
+            if (nextIsIndex)
+            {
+                var inner = new List<object?>();
+                list[idx] = inner;
+                AddPathToList(inner, segments[1..], value);
+            }
+            else
+            {
+                var d = new Dictionary<string, object>(StringComparer.Ordinal) { ["__value"] = s };
+                list[idx] = d;
+                AddPathToTree(d, segments[1..], value);
+            }
+        }
+        else if (child is Dictionary<string, object> d2)
+        {
+            AddPathToTree(d2, segments[1..], value);
+        }
+        else if (child is List<object?> l)
+        {
+            AddPathToList(l, segments[1..], value);
+        }
+    }
+
+    private static void EnsureListSize(List<object?> list, int size)
+    {
+        while (list.Count < size) list.Add(null);
     }
 
     private void SetKeyRegex(string[] args)
