@@ -4,6 +4,10 @@ using System.Text;
 using Azure.Identity;
 using Azure.Core;
 using System.Text.Json;
+using System.Text.RegularExpressions;
+using System.Collections;
+using YamlDotNet.Serialization;
+using YamlDotNet.Serialization.NamingConventions;
 
 namespace AppConfigCli;
 
@@ -18,12 +22,7 @@ internal class Program
             return 0;
         }
 
-        if (string.IsNullOrWhiteSpace(options.Prefix))
-        {
-            Console.Error.WriteLine("Missing required --prefix <value> argument.");
-            PrintHelp();
-            return 2;
-        }
+        // --prefix is now optional; user can set/change it in-app
 
         var connStr = Environment.GetEnvironmentVariable("APP_CONFIG_CONNECTION_STRING");
         ConfigurationClient client;
@@ -70,9 +69,141 @@ internal class Program
             whoAmIAction = async () => await WhoAmIAsync(credential, uri);
         }
 
-        var app = new EditorApp(client, options.Prefix!, options.Label, whoAmIAction, authModeDesc);
+        var app = new EditorApp(client, options.Prefix, options.Label, whoAmIAction, authModeDesc);
         try
         {
+            // Helpers to construct nested structure with objects/arrays
+            void AddPathDict(Dictionary<string, object> node, string[] segments, string value)
+            {
+                if (segments.Length == 0)
+                {
+                    node["__value"] = value;
+                    return;
+                }
+                var head = segments[0];
+                if (!node.TryGetValue(head, out var child))
+                {
+                    if (segments.Length == 1)
+                    {
+                        node[head] = value;
+                        return;
+                    }
+                    bool nextIsIndex = int.TryParse(segments[1], out _);
+                    if (nextIsIndex)
+                    {
+                        var list = new List<object?>();
+                        node[head] = list;
+                        AddPathList(list, segments[1..], value);
+                    }
+                    else
+                    {
+                        var dict = new Dictionary<string, object>(StringComparer.Ordinal);
+                        node[head] = dict;
+                        AddPathDict(dict, segments[1..], value);
+                    }
+                }
+                else if (child is string s)
+                {
+                    bool nextIsIndex = segments.Length > 1 && int.TryParse(segments[1], out _);
+                    if (nextIsIndex)
+                    {
+                        var list = new List<object?>();
+                        node[head] = list;
+                        AddPathList(list, segments[1..], value);
+                    }
+                    else
+                    {
+                        var dict = new Dictionary<string, object>(StringComparer.Ordinal) { ["__value"] = s };
+                        node[head] = dict;
+                        AddPathDict(dict, segments[1..], value);
+                    }
+                }
+                else if (child is Dictionary<string, object> dict)
+                {
+                    if (segments.Length == 1)
+                    {
+                        dict["__value"] = value;
+                    }
+                    else
+                    {
+                        AddPathDict(dict, segments[1..], value);
+                    }
+                }
+                else if (child is List<object?> list)
+                {
+                    AddPathList(list, segments[1..], value);
+                }
+            }
+
+            void AddPathList(List<object?> list, string[] segments, string value)
+            {
+                if (segments.Length == 0) return; // nothing to set
+                var idxStr = segments[0];
+                if (!int.TryParse(idxStr, out int idx))
+                {
+                    // Treat non-numeric as object under the array element
+                    EnsureListSize(list, 1);
+                    var head = 0; // fallback index
+                    if (list[head] is not Dictionary<string, object> d)
+                    {
+                        d = new Dictionary<string, object>(StringComparer.Ordinal);
+                        list[head] = d;
+                    }
+                    AddPathDict(d, segments, value);
+                    return;
+                }
+                EnsureListSize(list, idx + 1);
+                var child = list[idx];
+                if (segments.Length == 1)
+                {
+                    list[idx] = value;
+                    return;
+                }
+                bool nextIsIndex = int.TryParse(segments[1], out _);
+                if (child is null)
+                {
+                    if (nextIsIndex)
+                    {
+                        var inner = new List<object?>();
+                        list[idx] = inner;
+                        AddPathList(inner, segments[1..], value);
+                    }
+                    else
+                    {
+                        var d = new Dictionary<string, object>(StringComparer.Ordinal);
+                        list[idx] = d;
+                        AddPathDict(d, segments[1..], value);
+                    }
+                }
+                else if (child is string s)
+                {
+                    if (nextIsIndex)
+                    {
+                        var inner = new List<object?>();
+                        list[idx] = inner;
+                        AddPathList(inner, segments[1..], value);
+                    }
+                    else
+                    {
+                        var d = new Dictionary<string, object>(StringComparer.Ordinal) { ["__value"] = s };
+                        list[idx] = d;
+                        AddPathDict(d, segments[1..], value);
+                    }
+                }
+                else if (child is Dictionary<string, object> d)
+                {
+                    AddPathDict(d, segments[1..], value);
+                }
+                else if (child is List<object?> l)
+                {
+                    AddPathList(l, segments[1..], value);
+                }
+            }
+
+            void EnsureListSize(List<object?> list, int size)
+            {
+                while (list.Count < size) list.Add(null);
+            }
             await app.LoadAsync();
             await app.RunAsync();
             return 0;
@@ -311,10 +442,10 @@ internal class Program
     {
         Console.WriteLine("Azure App Configuration Section Editor");
         Console.WriteLine();
-        Console.WriteLine("Usage: appconfig --prefix <keyPrefix> [--label <label>] [--endpoint <url>] [--tenant <guid>] [--auth <mode>]");
+        Console.WriteLine("Usage: appconfig [--prefix <keyPrefix>] [--label <label>] [--endpoint <url>] [--tenant <guid>] [--auth <mode>]");
         Console.WriteLine();
         Console.WriteLine("Options:");
-        Console.WriteLine("  --prefix <value>    Required. Key prefix (section) to edit");
+        Console.WriteLine("  --prefix <value>    Optional. Key prefix (section) to load initially");
         Console.WriteLine("  --label <value>     Optional. Label filter");
         Console.WriteLine("  --endpoint <url>    Optional. App Configuration endpoint for AAD auth");
         Console.WriteLine("  --tenant <guid>     Optional. Entra ID tenant for AAD auth");
@@ -327,13 +458,15 @@ internal class Program
         Console.WriteLine();
         Console.WriteLine("Commands inside editor:");
         Console.WriteLine("  a|add           Add new key under prefix");
+        Console.WriteLine("  p|prefix [val]  Change prefix (no arg prompts)");
         Console.WriteLine("  c|copy <n> [m]  Copy rows n..m to another label and switch");
         Console.WriteLine("  d|delete <n> [m]  Delete items n..m");
         Console.WriteLine("  e|edit <n>      Edit item n");
         Console.WriteLine("  h|help          Help");
-        Console.WriteLine("  l|label [value] Change label filter (no arg clears)");
+        Console.WriteLine("  l|label [value] Change label filter (no arg clears; '-' = empty label)");
+        Console.WriteLine("  o|open          Edit all visible items in external editor");
         Console.WriteLine("  q|quit          Quit");
-        Console.WriteLine("  r|reload        Reload settings from Azure");
+        Console.WriteLine("  r|reload        Reload from Azure and reconcile local changes");
         Console.WriteLine("  s|save          Save all changes");
         Console.WriteLine("  u|undo <n> [m]|all  Undo selection or all pending changes");
         Console.WriteLine();
@@ -398,13 +531,15 @@ internal sealed class Item
 internal sealed class EditorApp
 {
     private readonly ConfigurationClient _client;
-    private readonly string _prefix;
+    private string? _prefix;
     private string? _label;
     private readonly List<Item> _items = new();
     private readonly Func<Task>? _whoAmI;
     private readonly string _authModeDesc;
+    private string? _keyRegexPattern;
+    private Regex? _keyRegex;
 
-    public EditorApp(ConfigurationClient client, string prefix, string? label, Func<Task>? whoAmI = null, string authModeDesc = "")
+    public EditorApp(ConfigurationClient client, string? prefix, string? label, Func<Task>? whoAmI = null, string authModeDesc = "")
     {
         _client = client;
         _prefix = prefix;
@@ -427,8 +562,8 @@ internal sealed class EditorApp
 
         var selector = new SettingSelector
         {
-            KeyFilter = _prefix + "*",
-            LabelFilter = _label
+            KeyFilter = string.IsNullOrWhiteSpace(_prefix) ? "*" : _prefix + "*",
+            LabelFilter = ToLabelFilter(_label)
         };
 
         var seen = new HashSet<string>(StringComparer.Ordinal);
@@ -436,7 +571,7 @@ internal sealed class EditorApp
         {
             var fullKey = s.Key;
             var label = s.Label;
-            var shortKey = fullKey.StartsWith(_prefix, StringComparison.Ordinal) ? fullKey[_prefix.Length..] : fullKey;
+            var shortKey = (!string.IsNullOrEmpty(_prefix) && fullKey.StartsWith(_prefix, StringComparison.Ordinal)) ? fullKey[_prefix.Length..] : fullKey;
             var key = MakeKey(fullKey, label);
             seen.Add(key);
 
@@ -476,7 +611,7 @@ internal sealed class EditorApp
         {
             if (seen.Contains(kv.Key)) continue;
             SplitKey(kv.Key, out var fullKey, out var label);
-            var shortKey = fullKey.StartsWith(_prefix, StringComparison.Ordinal) ? fullKey[_prefix.Length..] : fullKey;
+            var shortKey = (!string.IsNullOrEmpty(_prefix) && fullKey.StartsWith(_prefix, StringComparison.Ordinal)) ? fullKey[_prefix.Length..] : fullKey;
             switch (kv.Value.State)
             {
                 case ItemState.New:
@@ -526,6 +661,10 @@ internal sealed class EditorApp
                 case "copy":
                     await CopyAsync(parts.Skip(1).ToArray());
                     break;
+                case "p":
+                case "prefix":
+                    await ChangePrefixAsync(parts.Skip(1).ToArray());
+                    break;
                 case "d":
                 case "delete":
                     Delete(parts.Skip(1).ToArray());
@@ -533,6 +672,16 @@ internal sealed class EditorApp
                 case "u":
                 case "undo":
                     Undo(parts.Skip(1).ToArray());
+                    break;
+                case "g":
+                case "grep":
+                    SetKeyRegex(parts.Skip(1).ToArray());
+                    break;
+                case "json":
+                    await OpenJsonInEditorAsync(parts.Skip(1).ToArray());
+                    break;
+                case "yaml":
+                    await OpenYamlInEditorAsync(parts.Skip(1).ToArray());
                     break;
                 case "label":
                 case "l":
@@ -584,6 +733,10 @@ internal sealed class EditorApp
                     Console.WriteLine("Press Enter to continue...");
                     Console.ReadLine();
                     break;
+                case "o":
+                case "open":
+                    await OpenInEditorAsync();
+                    break;
                 default:
                     Console.WriteLine("Unknown command. Type 'h' for help.");
                     break;
@@ -603,15 +756,32 @@ internal sealed class EditorApp
         label = rest.Length == 0 ? null : rest;
     }
 
+    private static string? ToLabelFilter(string? label)
+    {
+        if (label is null) return null; // any label
+        if (label.Length == 0) return "\0"; // special filter for empty label
+        return label;
+    }
+
+    private static string? ToWriteLabel(string? label)
+    {
+        // When writing/deleting, use null for the empty label
+        return string.IsNullOrEmpty(label) ? null : label;
+    }
+
     private void Render()
     {
         Console.Clear();
         Console.WriteLine($"Azure App Configuration Editor");
-        Console.WriteLine($"Prefix: '{_prefix}'   Label filter: '{_label ?? "(any)"}'   Auth: {_authModeDesc}");
+        var prefixDisplay = string.IsNullOrWhiteSpace(_prefix) ? "(none)" : _prefix;
+        var labelDisplay = _label is null ? "(any)" : (_label.Length == 0 ? "(none)" : _label);
+        var keyRegexDisplay = string.IsNullOrEmpty(_keyRegexPattern) ? "(none)" : _keyRegexPattern;
+        Console.WriteLine($"Prefix: '{prefixDisplay}'   Label filter: '{labelDisplay}'   Key regex: '{keyRegexDisplay}'   Auth: {_authModeDesc}");
 
         var width = GetWindowWidth();
         bool includeValue = width >= 60; // minimal width for value column
-        ComputeLayout(width, includeValue, out var keyWidth, out var labelWidth, out var valueWidth);
+        var visible = GetVisibleItems();
+        ComputeLayout(width, includeValue, visible, out var keyWidth, out var labelWidth, out var valueWidth);
 
         Console.WriteLine(new string('-', width));
         if (includeValue)
@@ -620,9 +790,9 @@ internal sealed class EditorApp
             Console.WriteLine($"Idx  S  {PadColumn("Key", keyWidth)}  {PadColumn("Label", labelWidth)}");
         Console.WriteLine(new string('-', width));
 
-        for (int i = 0; i < _items.Count; i++)
+        for (int i = 0; i < visible.Count; i++)
         {
-            var item = _items[i];
+            var item = visible[i];
             var s = item.State switch
             {
                 ItemState.New => '+',
@@ -631,7 +801,7 @@ internal sealed class EditorApp
                 _ => ' '
             };
             var keyDisp = TruncateFixed(item.ShortKey, keyWidth);
-            var labelText = item.Label ?? "(none)";
+            var labelText = string.IsNullOrEmpty(item.Label) ? "(none)" : item.Label;
             var labelDisp = TruncateFixed(labelText, labelWidth);
             if (valueWidth > 0)
             {
@@ -646,7 +816,7 @@ internal sealed class EditorApp
         }
 
         Console.WriteLine();
-        Console.WriteLine("Commands: a|add, c|copy <n> [m], d|delete <n> [m], e|edit <n>, h|help, l|label [value], q|quit, r|reload, s|save, u|undo <n> [m]|all, w|whoami");
+        Console.WriteLine("Commands: a|add, c|copy <n> [m], d|delete <n> [m], e|edit <n>, g|grep [regex], h|help, json <sep>, yaml <sep>, l|label [value], o|open, p|prefix [value], q|quit, r|reload, s|save, u|undo <n> [m]|all, w|whoami");
     }
 
     private void ShowHelp()
@@ -658,10 +828,15 @@ internal sealed class EditorApp
         Console.WriteLine("c|copy <n> [m]   Copy rows n..m to another label and switch");
         Console.WriteLine("d|delete <n> [m] Delete items n..m");
         Console.WriteLine("e|edit <n>       Edit value of item number n");
+        Console.WriteLine("g|grep [regex]   Set key regex filter (no arg clears)");
         Console.WriteLine("h|help|?         Show this help");
-        Console.WriteLine("l|label [value]  Change label filter (no arg clears)");
+        Console.WriteLine("json <sep>       Edit visible items as nested JSON split by <sep>");
+        Console.WriteLine("yaml <sep>       Edit visible items as nested YAML split by <sep>");
+        Console.WriteLine("o|open           Edit all visible items in external editor");
+        Console.WriteLine("p|prefix [value] Change prefix (no arg prompts)");
+        Console.WriteLine("l|label [value]  Change label filter (no arg clears; '-' = empty label)");
         Console.WriteLine("q|quit           Quit the editor");
-        Console.WriteLine("r|reload         Reload settings from Azure (discards local edits)");
+        Console.WriteLine("r|reload         Reload from Azure and reconcile local changes");
         Console.WriteLine("s|save           Save all pending changes to Azure");
         Console.WriteLine("u|undo <n> [m]|all  Undo local changes for rows n..m, or 'all' to undo everything");
         Console.WriteLine("w|whoami         Show current identity and endpoint");
@@ -719,9 +894,10 @@ internal sealed class EditorApp
         Console.WriteLine("Enter value:");
         Console.Write("> ");
         var v = Console.ReadLine() ?? string.Empty;
+        var basePrefix = _prefix ?? string.Empty;
         _items.Add(new Item
         {
-            FullKey = _prefix + k,
+            FullKey = basePrefix + k,
             ShortKey = k,
             Label = chosenLabel,
             OriginalValue = null,
@@ -752,16 +928,13 @@ internal sealed class EditorApp
         if (!int.TryParse(args[0], out int start)) { Console.WriteLine("First argument must be an index."); Console.ReadLine(); return; }
         int end = start;
         if (args.Length >= 2 && int.TryParse(args[1], out int endParsed)) end = endParsed;
-        if (start < 1 || end < 1 || start > _items.Count || end > _items.Count)
-        {
-            Console.WriteLine("Index out of range."); Console.ReadLine(); return;
-        }
-        if (start > end) (start, end) = (end, start);
+        var actualIndices = MapVisibleRangeToItemIndices(start, end, out var error);
+        if (actualIndices is null) { Console.WriteLine(error); Console.ReadLine(); return; }
 
         var selection = new List<(string ShortKey, string Value)>();
-        for (int i = start - 1; i <= end - 1; i++)
+        foreach (var idx in actualIndices)
         {
-            var it = _items[i];
+            var it = _items[idx];
             if (it.State == ItemState.Deleted) continue;
             var val = it.Value ?? string.Empty;
             selection.Add((it.ShortKey, val));
@@ -827,16 +1000,11 @@ internal sealed class EditorApp
         if (!int.TryParse(args[0], out int start)) { Console.WriteLine("First argument must be an index."); Console.ReadLine(); return; }
         int end = start;
         if (args.Length >= 2 && int.TryParse(args[1], out int endParsed)) end = endParsed;
-        if (start < 1 || end < 1 || start > _items.Count || end > _items.Count)
-        {
-            Console.WriteLine("Index out of range."); Console.ReadLine(); return;
-        }
-        if (start > end) (start, end) = (end, start);
+        var actualIndices = MapVisibleRangeToItemIndices(start, end, out var error);
+        if (actualIndices is null) { Console.WriteLine(error); Console.ReadLine(); return; }
 
-        // Build index list and process from highest to lowest to avoid shifting
         int removedNew = 0, markedExisting = 0;
-        var indices = Enumerable.Range(start - 1, end - start + 1).OrderByDescending(i => i).ToList();
-        foreach (var idx in indices)
+        foreach (var idx in actualIndices.OrderByDescending(i => i))
         {
             var item = _items[idx];
             if (item.IsNew)
@@ -875,16 +1043,11 @@ internal sealed class EditorApp
         if (!int.TryParse(args[0], out int start)) { Console.WriteLine("First argument must be an index or 'all'."); Console.ReadLine(); return; }
         int end = start;
         if (args.Length >= 2 && int.TryParse(args[1], out int endParsed)) end = endParsed;
-        if (start < 1 || end < 1 || start > _items.Count || end > _items.Count)
-        {
-            Console.WriteLine("Index out of range."); Console.ReadLine(); return;
-        }
-        if (start > end) (start, end) = (end, start);
+        var actualIndices = MapVisibleRangeToItemIndices(start, end, out var error);
+        if (actualIndices is null) { Console.WriteLine(error); Console.ReadLine(); return; }
 
         int removedNew = 0, restored = 0, untouched = 0;
-        // Process descending indices if removal may happen
-        var indices = Enumerable.Range(start - 1, end - start + 1).OrderByDescending(i => i).ToList();
-        foreach (var idx in indices)
+        foreach (var idx in actualIndices.OrderByDescending(i => i))
         {
             if (idx < 0 || idx >= _items.Count) { continue; }
             var item = _items[idx];
@@ -958,12 +1121,14 @@ internal sealed class EditorApp
             return false;
         }
         n -= 1;
-        if (n < 0 || n >= _items.Count)
+        var vis = GetVisibleItems();
+        if (n < 0 || n >= vis.Count)
         {
             Console.WriteLine("Invalid item number.");
             return false;
         }
-        idx = n;
+        var target = vis[n];
+        idx = _items.IndexOf(target);
         return true;
     }
 
@@ -971,14 +1136,62 @@ internal sealed class EditorApp
     {
         if (args.Length == 0)
         {
-            // No argument clears the filter
+            // No argument clears the filter (any label)
             _label = null;
             await LoadAsync();
             return;
         }
 
         var newLabelArg = string.Join(' ', args).Trim();
-        _label = newLabelArg; // accept any value literally, including "clear"
+        if (newLabelArg == "-")
+        {
+            // Single dash selects the explicitly empty label
+            _label = string.Empty;
+        }
+        else
+        {
+            // Any other value is a literal label
+            _label = newLabelArg;
+        }
+        await LoadAsync();
+    }
+
+    private async Task ChangePrefixAsync(string[] args)
+    {
+        string? newPrefix = null;
+        if (args.Length == 0)
+        {
+            Console.WriteLine("Enter new prefix (empty for all keys):");
+            Console.Write("> ");
+            var input = Console.ReadLine();
+            newPrefix = input is null ? string.Empty : input.Trim();
+        }
+        else
+        {
+            newPrefix = string.Join(' ', args).Trim();
+        }
+
+        if (HasPendingChanges(out var newCount, out var modCount, out var delCount))
+        {
+            Console.WriteLine($"You have unsaved changes: +{newCount} new, *{modCount} modified, -{delCount} deleted.");
+            Console.WriteLine("Change prefix now?");
+            Console.WriteLine("  S) Save and change");
+            Console.WriteLine("  Q) Change without saving (discard)");
+            Console.WriteLine("  C) Cancel");
+            while (true)
+            {
+                Console.Write("> ");
+                var choice = (Console.ReadLine() ?? string.Empty).Trim().ToLowerInvariant();
+                if (choice.Length == 0) continue;
+                var ch = choice[0];
+                if (ch == 'c') return;
+                if (ch == 's') { await SaveAsync(pause: false); break; }
+                if (ch == 'q') { /* discard */ break; }
+                Console.WriteLine("Please enter S, Q, or C.");
+            }
+        }
+
+        _prefix = newPrefix; // can be empty string to mean 'all keys'
         await LoadAsync();
     }
 
@@ -992,7 +1205,7 @@ internal sealed class EditorApp
         {
             try
             {
-                var setting = new ConfigurationSetting(item.FullKey, item.Value ?? string.Empty, item.Label);
+                var setting = new ConfigurationSetting(item.FullKey, item.Value ?? string.Empty, ToWriteLabel(item.Label));
                 await _client.SetConfigurationSettingAsync(setting);
                 item.OriginalValue = item.Value;
                 item.State = ItemState.Unchanged;
@@ -1009,7 +1222,7 @@ internal sealed class EditorApp
         {
             try
             {
-                await _client.DeleteConfigurationSettingAsync(item.FullKey, item.Label);
+                await _client.DeleteConfigurationSettingAsync(item.FullKey, ToWriteLabel(item.Label));
                 _items.Remove(item);
                 changes++;
             }
@@ -1026,6 +1239,904 @@ internal sealed class EditorApp
             Console.ReadLine();
         }
     }
+
+    private async Task OpenInEditorAsync()
+    {
+        if (_label is null)
+        {
+            Console.WriteLine("Open requires an active label filter. Set one with l|label <value> first.");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+            return;
+        }
+
+        // Prepare temp file
+        string tmpDir = Path.GetTempPath();
+        string file = Path.Combine(tmpDir, $"appconfig-{Guid.NewGuid():N}.txt");
+
+        try
+        {
+            var sb = new StringBuilder();
+            sb.AppendLine("# AppConfig CLI bulk edit");
+            sb.AppendLine($"# Prefix: {(_prefix ?? "(all)")}");
+            var labelHeader = _label is null ? "(any)" : (_label.Length == 0 ? "(none)" : _label);
+            sb.AppendLine($"# Label: {labelHeader}");
+            sb.AppendLine("# Format: shortKey<TAB>value");
+            sb.AppendLine(@"# Escape: newline as \n, tab as \t, backslash as \\");
+            sb.AppendLine("# Delete a key by removing its line. Add by adding a new line.");
+            foreach (var it in GetVisibleItems().Where(i => i.State != ItemState.Deleted))
+            {
+                var key = it.ShortKey;
+                var valEsc = EscapeValue(it.Value ?? string.Empty);
+                sb.AppendLine(string.Join('\t', new[] { key, valEsc }));
+            }
+            File.WriteAllText(file, sb.ToString());
+
+            // Launch editor
+            var (editorExe, editorArgsFormat) = GetDefaultEditor();
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = editorExe,
+                Arguments = string.Format(editorArgsFormat, QuoteIfNeeded(file)),
+                UseShellExecute = false,
+                RedirectStandardInput = false,
+                RedirectStandardOutput = false,
+                RedirectStandardError = false,
+            };
+            try
+            {
+                using var proc = System.Diagnostics.Process.Start(psi);
+                proc?.WaitForExit();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to launch editor '{editorExe}': {ex.Message}");
+                Console.WriteLine("Press Enter to continue...");
+                Console.ReadLine();
+                return;
+            }
+
+            // Read back and reconcile
+            var lines = File.ReadAllLines(file);
+            var parsed = new Dictionary<string, string>(StringComparer.Ordinal);
+            foreach (var raw in lines)
+            {
+                if (string.IsNullOrWhiteSpace(raw)) continue;
+                if (raw.TrimStart().StartsWith('#')) continue;
+                var parts = raw.Split('\t', 2);
+                if (parts.Length == 0) continue;
+                string shortKey = parts[0].Trim();
+                if (shortKey.Length == 0) continue;
+                string valueEsc = parts.Length >= 2 ? parts[1] : string.Empty;
+                var value = UnescapeValue(valueEsc);
+                parsed[shortKey] = value;
+            }
+
+            // Build current map for visible (non-deleted) items (under active label)
+            var current = GetVisibleItems().Where(i => i.State != ItemState.Deleted)
+                                .ToDictionary(i => i.ShortKey, i => i, StringComparer.Ordinal);
+
+            int created = 0, updated = 0, deleted = 0;
+
+            // Deletions: present in current but missing in parsed
+            foreach (var kv in current)
+            {
+                if (!parsed.ContainsKey(kv.Key))
+                {
+                    var item = kv.Value;
+                    if (item.IsNew)
+                    {
+                        _items.Remove(item);
+                    }
+                    else
+                    {
+                        item.State = ItemState.Deleted;
+                    }
+                    deleted++;
+                }
+            }
+
+            // Additions/Updates
+            foreach (var kv in parsed)
+            {
+                var key = kv.Key;
+                var newVal = kv.Value;
+                if (current.TryGetValue(key, out var existing))
+                {
+                    existing.Value = newVal;
+                    if (!existing.IsNew)
+                    {
+                        existing.State = string.Equals(existing.OriginalValue ?? string.Empty, newVal, StringComparison.Ordinal)
+                            ? ItemState.Unchanged
+                            : ItemState.Modified;
+                    }
+                    // If IsNew, keep as New even if identical
+                    updated++;
+                }
+                else
+                {
+                    // If a matching item exists but is marked Deleted, resurrect instead of creating duplicate
+                    var resurrect = _items.FirstOrDefault(i =>
+                        string.Equals(i.ShortKey, key, StringComparison.Ordinal) &&
+                        string.Equals(i.Label ?? string.Empty, _label ?? string.Empty, StringComparison.Ordinal) &&
+                        i.State == ItemState.Deleted);
+                    if (resurrect is not null)
+                    {
+                        resurrect.Value = newVal;
+                        resurrect.State = string.Equals(resurrect.OriginalValue ?? string.Empty, newVal, StringComparison.Ordinal)
+                            ? ItemState.Unchanged
+                            : ItemState.Modified;
+                        updated++;
+                    }
+                    else
+                    {
+                        var fullKey = (_prefix ?? string.Empty) + key;
+                        _items.Add(new Item
+                        {
+                            FullKey = fullKey,
+                            ShortKey = key,
+                            Label = _label,
+                            OriginalValue = null,
+                            Value = newVal,
+                            State = ItemState.New
+                        });
+                        created++;
+                    }
+                }
+            }
+
+            ConsolidateDuplicates();
+            _items.Sort(CompareItems);
+            Console.WriteLine($"Bulk edit applied for label [{_label ?? "(none)"}]: {created} added, {updated} updated, {deleted} deleted.");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+        }
+        finally
+        {
+            try { if (File.Exists(file)) File.Delete(file); } catch { }
+        }
+    }
+
+    private async Task OpenJsonInEditorAsync(string[] args)
+    {
+        if (_label is null)
+        {
+            Console.WriteLine("json requires an active label filter. Set one with l|label <value> first.");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+            return;
+        }
+
+        if (args.Length == 0)
+        {
+            Console.WriteLine("Usage: json <separator>   e.g., json :");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+            return;
+        }
+
+        var sep = string.Join(' ', args);
+        if (string.IsNullOrEmpty(sep))
+        {
+            Console.WriteLine("Separator cannot be empty.");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+            return;
+        }
+
+        string tmpDir = Path.GetTempPath();
+        string file = Path.Combine(tmpDir, $"appconfig-json-{Guid.NewGuid():N}.json");
+
+        try
+        {
+            // Helpers to construct nested structure with objects/arrays
+            void AddPathDict(Dictionary<string, object> node, string[] segments, string value)
+            {
+                if (segments.Length == 0)
+                {
+                    node["__value"] = value;
+                    return;
+                }
+                var head = segments[0];
+                if (!node.TryGetValue(head, out var child))
+                {
+                    if (segments.Length == 1)
+                    {
+                        node[head] = value;
+                        return;
+                    }
+                    bool nextIsIndex = int.TryParse(segments[1], out _);
+                    if (nextIsIndex)
+                    {
+                        var list = new List<object?>();
+                        node[head] = list;
+                        AddPathList(list, segments[1..], value);
+                    }
+                    else
+                    {
+                        var dict = new Dictionary<string, object>(StringComparer.Ordinal);
+                        node[head] = dict;
+                        AddPathDict(dict, segments[1..], value);
+                    }
+                }
+                else if (child is string s)
+                {
+                    bool nextIsIndex = segments.Length > 1 && int.TryParse(segments[1], out _);
+                    if (nextIsIndex)
+                    {
+                        var list = new List<object?>();
+                        node[head] = list;
+                        AddPathList(list, segments[1..], value);
+                    }
+                    else
+                    {
+                        var dict = new Dictionary<string, object>(StringComparer.Ordinal) { ["__value"] = s };
+                        node[head] = dict;
+                        AddPathDict(dict, segments[1..], value);
+                    }
+                }
+                else if (child is Dictionary<string, object> dict)
+                {
+                    if (segments.Length == 1)
+                    {
+                        dict["__value"] = value;
+                    }
+                    else
+                    {
+                        AddPathDict(dict, segments[1..], value);
+                    }
+                }
+                else if (child is List<object?> list)
+                {
+                    AddPathList(list, segments[1..], value);
+                }
+            }
+
+            void AddPathList(List<object?> list, string[] segments, string value)
+            {
+                if (segments.Length == 0) return; // nothing to set
+                var idxStr = segments[0];
+                if (!int.TryParse(idxStr, out int idx))
+                {
+                    // Treat non-numeric as object under the array element
+                    EnsureListSize(list, 1);
+                    var head = 0; // fallback index
+                    if (list[head] is not Dictionary<string, object> d)
+                    {
+                        d = new Dictionary<string, object>(StringComparer.Ordinal);
+                        list[head] = d;
+                    }
+                    AddPathDict(d, segments, value);
+                    return;
+                }
+                EnsureListSize(list, idx + 1);
+                var child = list[idx];
+                if (segments.Length == 1)
+                {
+                    list[idx] = value;
+                    return;
+                }
+                bool nextIsIndex = int.TryParse(segments[1], out _);
+                if (child is null)
+                {
+                    if (nextIsIndex)
+                    {
+                        var inner = new List<object?>();
+                        list[idx] = inner;
+                        AddPathList(inner, segments[1..], value);
+                    }
+                    else
+                    {
+                        var d = new Dictionary<string, object>(StringComparer.Ordinal);
+                        list[idx] = d;
+                        AddPathDict(d, segments[1..], value);
+                    }
+                }
+                else if (child is string s)
+                {
+                    if (nextIsIndex)
+                    {
+                        var inner = new List<object?>();
+                        list[idx] = inner;
+                        AddPathList(inner, segments[1..], value);
+                    }
+                    else
+                    {
+                        var d = new Dictionary<string, object>(StringComparer.Ordinal) { ["__value"] = s };
+                        list[idx] = d;
+                        AddPathDict(d, segments[1..], value);
+                    }
+                }
+                else if (child is Dictionary<string, object> d)
+                {
+                    AddPathDict(d, segments[1..], value);
+                }
+                else if (child is List<object?> l)
+                {
+                    AddPathList(l, segments[1..], value);
+                }
+            }
+
+            void EnsureListSize(List<object?> list, int size)
+            {
+                while (list.Count < size) list.Add(null);
+            }
+
+            // Build nested object (supports objects and arrays via numeric segments)
+            var root = new Dictionary<string, object>(StringComparer.Ordinal);
+            foreach (var it in GetVisibleItems().Where(i => i.State != ItemState.Deleted))
+            {
+                var path = it.ShortKey.Split(sep, StringSplitOptions.RemoveEmptyEntries);
+                AddPathToTree(root, path, it.Value ?? string.Empty);
+            }
+
+            var json = JsonSerializer.Serialize(root, new JsonSerializerOptions { WriteIndented = true });
+            File.WriteAllText(file, json);
+
+            // Launch editor
+            var (editorExe, editorArgsFormat) = GetDefaultEditor();
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = editorExe,
+                Arguments = string.Format(editorArgsFormat, QuoteIfNeeded(file)),
+                UseShellExecute = false,
+                RedirectStandardInput = false,
+                RedirectStandardOutput = false,
+                RedirectStandardError = false,
+            };
+            try
+            {
+                using var proc = System.Diagnostics.Process.Start(psi);
+                proc?.WaitForExit();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to launch editor '{editorExe}': {ex.Message}");
+                Console.WriteLine("Press Enter to continue...");
+                Console.ReadLine();
+                return;
+            }
+
+            // Parse edited JSON
+            Dictionary<string, string> parsed;
+            try
+            {
+                var text = File.ReadAllText(file);
+                using var doc = JsonDocument.Parse(text);
+                if (doc.RootElement.ValueKind != JsonValueKind.Object)
+                {
+                    Console.WriteLine("Top-level JSON must be an object.");
+                    Console.WriteLine("Press Enter to continue...");
+                    Console.ReadLine();
+                    return;
+                }
+                parsed = new Dictionary<string, string>(StringComparer.Ordinal);
+                var stack = new Stack<string>();
+                void Walk(JsonElement el)
+                {
+                    if (el.ValueKind == JsonValueKind.Object)
+                    {
+                        // Leaf value for current path if __value present
+                        if (el.TryGetProperty("__value", out var v))
+                        {
+                            var sk = string.Join(sep, stack.Reverse());
+                            parsed[sk] = v.ValueKind == JsonValueKind.String ? v.GetString() ?? string.Empty : v.GetRawText();
+                        }
+                        foreach (var prop in el.EnumerateObject())
+                        {
+                            if (prop.NameEquals("__value")) continue;
+                            stack.Push(prop.Name);
+                            Walk(prop.Value);
+                            stack.Pop();
+                        }
+                    }
+                    else if (el.ValueKind == JsonValueKind.Array)
+                    {
+                        int idx = 0;
+                        foreach (var item in el.EnumerateArray())
+                        {
+                            stack.Push(idx.ToString());
+                            Walk(item);
+                            stack.Pop();
+                            idx++;
+                        }
+                    }
+                    else
+                    {
+                        var sk = string.Join(sep, stack.Reverse());
+                        parsed[sk] = el.ValueKind == JsonValueKind.String ? el.GetString() ?? string.Empty : el.GetRawText();
+                    }
+                }
+                Walk(doc.RootElement);
+            }
+            catch (JsonException jex)
+            {
+                var line = jex.LineNumber.HasValue ? jex.LineNumber.Value.ToString() : "?";
+                var pos = jex.BytePositionInLine.HasValue ? jex.BytePositionInLine.Value.ToString() : "?";
+                Console.WriteLine($"Invalid JSON at line {line}, position {pos}: {jex.Message}");
+                Console.WriteLine("Press Enter to continue...");
+                Console.ReadLine();
+                return;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Invalid JSON: {ex.Message}");
+                Console.WriteLine("Press Enter to continue...");
+                Console.ReadLine();
+                return;
+            }
+
+            // Current visible map
+            var current = GetVisibleItems().Where(i => i.State != ItemState.Deleted)
+                                           .ToDictionary(i => i.ShortKey, i => i, StringComparer.Ordinal);
+
+            int created = 0, updated = 0, deleted = 0;
+
+            // Deletions
+            foreach (var kv in current)
+            {
+                if (!parsed.ContainsKey(kv.Key))
+                {
+                    var item = kv.Value;
+                    if (item.IsNew)
+                    {
+                        _items.Remove(item);
+                    }
+                    else
+                    {
+                        item.State = ItemState.Deleted;
+                    }
+                    deleted++;
+                }
+            }
+
+            // Additions/Updates
+            foreach (var kv in parsed)
+            {
+                var shortKey = kv.Key;
+                var newVal = kv.Value;
+                if (current.TryGetValue(shortKey, out var existing))
+                {
+                    existing.Value = newVal;
+                    if (!existing.IsNew)
+                    {
+                        existing.State = string.Equals(existing.OriginalValue ?? string.Empty, newVal, StringComparison.Ordinal)
+                            ? ItemState.Unchanged
+                            : ItemState.Modified;
+                    }
+                    updated++;
+                }
+                else
+                {
+                    // Resurrect if previously deleted
+                    var resurrect = _items.FirstOrDefault(i =>
+                        string.Equals(i.ShortKey, shortKey, StringComparison.Ordinal) &&
+                        string.Equals(i.Label ?? string.Empty, _label ?? string.Empty, StringComparison.Ordinal) &&
+                        i.State == ItemState.Deleted);
+                    if (resurrect is not null)
+                    {
+                        resurrect.Value = newVal;
+                        resurrect.State = string.Equals(resurrect.OriginalValue ?? string.Empty, newVal, StringComparison.Ordinal)
+                            ? ItemState.Unchanged
+                            : ItemState.Modified;
+                        updated++;
+                    }
+                    else
+                    {
+                        var fullKey = (_prefix ?? string.Empty) + shortKey;
+                        _items.Add(new Item
+                        {
+                            FullKey = fullKey,
+                            ShortKey = shortKey,
+                            Label = _label,
+                            OriginalValue = null,
+                            Value = newVal,
+                            State = ItemState.New
+                        });
+                        created++;
+                    }
+                }
+            }
+
+            ConsolidateDuplicates();
+            _items.Sort(CompareItems);
+            Console.WriteLine($"JSON edit applied for label [{(_label?.Length == 0 ? "(none)" : _label) ?? "(any)"}]: {created} added, {updated} updated, {deleted} deleted.");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+        }
+        finally
+        {
+            try { if (File.Exists(file)) File.Delete(file); } catch { }
+        }
+    }
+
+    private async Task OpenYamlInEditorAsync(string[] args)
+    {
+        if (_label is null)
+        {
+            Console.WriteLine("yaml requires an active label filter. Set one with l|label <value> first.");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+            return;
+        }
+
+        if (args.Length == 0)
+        {
+            Console.WriteLine("Usage: yaml <separator>   e.g., yaml :");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+            return;
+        }
+
+        var sep = string.Join(' ', args);
+        if (string.IsNullOrEmpty(sep))
+        {
+            Console.WriteLine("Separator cannot be empty.");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+            return;
+        }
+
+        string tmpDir = Path.GetTempPath();
+        string file = Path.Combine(tmpDir, $"appconfig-yaml-{Guid.NewGuid():N}.yaml");
+
+        try
+        {
+            void AddPathDict(Dictionary<string, object> node, string[] segments, string value)
+            {
+                if (segments.Length == 0)
+                {
+                    node["__value"] = value;
+                    return;
+                }
+                var head = segments[0];
+                if (!node.TryGetValue(head, out var child))
+                {
+                    if (segments.Length == 1)
+                    {
+                        node[head] = value;
+                        return;
+                    }
+                    bool nextIsIndex = int.TryParse(segments[1], out _);
+                    if (nextIsIndex)
+                    {
+                        var list = new List<object?>();
+                        node[head] = list;
+                        AddPathList(list, segments[1..], value);
+                    }
+                    else
+                    {
+                        var dict = new Dictionary<string, object>(StringComparer.Ordinal);
+                        node[head] = dict;
+                        AddPathDict(dict, segments[1..], value);
+                    }
+                }
+                else if (child is string s)
+                {
+                    bool nextIsIndex = segments.Length > 1 && int.TryParse(segments[1], out _);
+                    if (nextIsIndex)
+                    {
+                        var list = new List<object?>();
+                        node[head] = list;
+                        AddPathList(list, segments[1..], value);
+                    }
+                    else
+                    {
+                        var dict = new Dictionary<string, object>(StringComparer.Ordinal) { ["__value"] = s };
+                        node[head] = dict;
+                        AddPathDict(dict, segments[1..], value);
+                    }
+                }
+                else if (child is Dictionary<string, object> dict)
+                {
+                    if (segments.Length == 1)
+                    {
+                        dict["__value"] = value;
+                    }
+                    else
+                    {
+                        AddPathDict(dict, segments[1..], value);
+                    }
+                }
+                else if (child is List<object?> list)
+                {
+                    AddPathList(list, segments[1..], value);
+                }
+            }
+
+            void AddPathList(List<object?> list, string[] segments, string value)
+            {
+                if (segments.Length == 0) return; // nothing to set
+                var idxStr = segments[0];
+                if (!int.TryParse(idxStr, out int idx))
+                {
+                    // Treat non-numeric as object under the array element
+                    EnsureListSize(list, 1);
+                    var head = 0; // fallback index
+                    if (list[head] is not Dictionary<string, object> d)
+                    {
+                        d = new Dictionary<string, object>(StringComparer.Ordinal);
+                        list[head] = d;
+                    }
+                    AddPathDict(d, segments, value);
+                    return;
+                }
+                EnsureListSize(list, idx + 1);
+                var child = list[idx];
+                if (segments.Length == 1)
+                {
+                    list[idx] = value;
+                    return;
+                }
+                bool nextIsIndex = int.TryParse(segments[1], out _);
+                if (child is null)
+                {
+                    if (nextIsIndex)
+                    {
+                        var inner = new List<object?>();
+                        list[idx] = inner;
+                        AddPathList(inner, segments[1..], value);
+                    }
+                    else
+                    {
+                        var d = new Dictionary<string, object>(StringComparer.Ordinal);
+                        list[idx] = d;
+                        AddPathDict(d, segments[1..], value);
+                    }
+                }
+                else if (child is string s)
+                {
+                    if (nextIsIndex)
+                    {
+                        var inner = new List<object?>();
+                        list[idx] = inner;
+                        AddPathList(inner, segments[1..], value);
+                    }
+                    else
+                    {
+                        var d = new Dictionary<string, object>(StringComparer.Ordinal) { ["__value"] = s };
+                        list[idx] = d;
+                        AddPathDict(d, segments[1..], value);
+                    }
+                }
+                else if (child is Dictionary<string, object> d)
+                {
+                    AddPathDict(d, segments[1..], value);
+                }
+                else if (child is List<object?> l)
+                {
+                    AddPathList(l, segments[1..], value);
+                }
+            }
+
+            void EnsureListSize(List<object?> list, int size)
+            {
+                while (list.Count < size) list.Add(null);
+            }
+
+            // Build nested object (supports objects and arrays via numeric segments)
+            var root = new Dictionary<string, object>(StringComparer.Ordinal);
+            foreach (var it in GetVisibleItems().Where(i => i.State != ItemState.Deleted))
+            {
+                var path = it.ShortKey.Split(sep, StringSplitOptions.RemoveEmptyEntries);
+                AddPathToTree(root, path, it.Value ?? string.Empty);
+            }
+
+            var serializer = new SerializerBuilder().Build();
+            var yaml = serializer.Serialize(root);
+            File.WriteAllText(file, yaml);
+
+            // Launch editor
+            var (editorExe, editorArgsFormat) = GetDefaultEditor();
+            var psi = new System.Diagnostics.ProcessStartInfo
+            {
+                FileName = editorExe,
+                Arguments = string.Format(editorArgsFormat, QuoteIfNeeded(file)),
+                UseShellExecute = false,
+                RedirectStandardInput = false,
+                RedirectStandardOutput = false,
+                RedirectStandardError = false,
+            };
+            try
+            {
+                using var proc = System.Diagnostics.Process.Start(psi);
+                proc?.WaitForExit();
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Failed to launch editor '{editorExe}': {ex.Message}");
+                Console.WriteLine("Press Enter to continue...");
+                Console.ReadLine();
+                return;
+            }
+
+            // Parse edited YAML
+            Dictionary<string, string> parsed;
+            try
+            {
+                var text = File.ReadAllText(file);
+                var deserializer = new DeserializerBuilder().Build();
+                var rootObj = deserializer.Deserialize<object?>(text);
+                if (rootObj is not IDictionary<object, object> map)
+                {
+                    Console.WriteLine("Top-level YAML must be a mapping/object.");
+                    Console.WriteLine("Press Enter to continue...");
+                    Console.ReadLine();
+                    return;
+                }
+                parsed = new Dictionary<string, string>(StringComparer.Ordinal);
+                var stack = new Stack<string>();
+
+                void WalkYaml(object? node)
+                {
+                    if (node is IDictionary<object, object> dict)
+                    {
+                        if (dict.TryGetValue("__value", out var vv))
+                        {
+                            var sk = string.Join(sep, stack.Reverse());
+                            parsed[sk] = vv is string vs ? vs : JsonSerializer.Serialize(vv);
+                        }
+                        foreach (var kv in dict)
+                        {
+                            if (kv.Key is string name && name == "__value") continue;
+                            var key = kv.Key?.ToString() ?? string.Empty;
+                            stack.Push(key);
+                            WalkYaml(kv.Value);
+                            stack.Pop();
+                        }
+                    }
+                    else if (node is IList list)
+                    {
+                        for (int i = 0; i < list.Count; i++)
+                        {
+                            stack.Push(i.ToString());
+                            WalkYaml(list[i]);
+                            stack.Pop();
+                        }
+                    }
+                    else
+                    {
+                        var sk = string.Join(sep, stack.Reverse());
+                        parsed[sk] = node is string s ? s : JsonSerializer.Serialize(node);
+                    }
+                }
+
+                WalkYaml(map);
+            }
+            catch (YamlDotNet.Core.YamlException yex)
+            {
+                var mark = yex.Start;
+                Console.WriteLine($"Invalid YAML at line {mark.Line}, column {mark.Column}: {yex.Message}");
+                Console.WriteLine("Press Enter to continue...");
+                Console.ReadLine();
+                return;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"Invalid YAML: {ex.Message}");
+                Console.WriteLine("Press Enter to continue...");
+                Console.ReadLine();
+                return;
+            }
+
+            // Current visible map
+            var current = GetVisibleItems().Where(i => i.State != ItemState.Deleted)
+                                           .ToDictionary(i => i.ShortKey, i => i, StringComparer.Ordinal);
+
+            int created = 0, updated = 0, deleted = 0;
+
+            // Deletions
+            foreach (var kv in current)
+            {
+                if (!parsed.ContainsKey(kv.Key))
+                {
+                    var item = kv.Value;
+                    if (item.IsNew)
+                    {
+                        _items.Remove(item);
+                    }
+                    else
+                    {
+                        item.State = ItemState.Deleted;
+                    }
+                    deleted++;
+                }
+            }
+
+            // Additions/Updates
+            foreach (var kv in parsed)
+            {
+                var shortKey = kv.Key;
+                var newVal = kv.Value;
+                if (current.TryGetValue(shortKey, out var existing))
+                {
+                    existing.Value = newVal;
+                    if (!existing.IsNew)
+                    {
+                        existing.State = string.Equals(existing.OriginalValue ?? string.Empty, newVal, StringComparison.Ordinal)
+                            ? ItemState.Unchanged
+                            : ItemState.Modified;
+                    }
+                    updated++;
+                }
+                else
+                {
+                    // Resurrect if previously deleted
+                    var resurrect = _items.FirstOrDefault(i =>
+                        string.Equals(i.ShortKey, shortKey, StringComparison.Ordinal) &&
+                        string.Equals(i.Label ?? string.Empty, _label ?? string.Empty, StringComparison.Ordinal) &&
+                        i.State == ItemState.Deleted);
+                    if (resurrect is not null)
+                    {
+                        resurrect.Value = newVal;
+                        resurrect.State = string.Equals(resurrect.OriginalValue ?? string.Empty, newVal, StringComparison.Ordinal)
+                            ? ItemState.Unchanged
+                            : ItemState.Modified;
+                        updated++;
+                    }
+                    else
+                    {
+                        var fullKey = (_prefix ?? string.Empty) + shortKey;
+                        _items.Add(new Item
+                        {
+                            FullKey = fullKey,
+                            ShortKey = shortKey,
+                            Label = _label,
+                            OriginalValue = null,
+                            Value = newVal,
+                            State = ItemState.New
+                        });
+                        created++;
+                    }
+                }
+            }
+
+            ConsolidateDuplicates();
+            _items.Sort(CompareItems);
+            Console.WriteLine($"YAML edit applied for label [{(_label?.Length == 0 ? "(none)" : _label) ?? "(any)"}]: {created} added, {updated} updated, {deleted} deleted.");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+        }
+        finally
+        {
+            try { if (File.Exists(file)) File.Delete(file); } catch { }
+        }
+    }
+
+    private static string EscapeValue(string value)
+        => value.Replace("\\", "\\\\").Replace("\t", "\\t").Replace("\n", "\\n");
+
+    private static string UnescapeValue(string value)
+    {
+        var sb = new StringBuilder();
+        for (int i = 0; i < value.Length; i++)
+        {
+            char c = value[i];
+            if (c == '\\' && i + 1 < value.Length)
+            {
+                char n = value[i + 1];
+                if (n == 'n') { sb.Append('\n'); i++; continue; }
+                if (n == 't') { sb.Append('\t'); i++; continue; }
+                sb.Append(n); i++; continue;
+            }
+            sb.Append(c);
+        }
+        return sb.ToString();
+    }
+
+    private static (string exe, string argsFormat) GetDefaultEditor()
+    {
+        // argsFormat must contain a single {0} placeholder for the file path (already quoted as needed)
+        string? visual = Environment.GetEnvironmentVariable("VISUAL");
+        string? editor = Environment.GetEnvironmentVariable("EDITOR");
+        if (!string.IsNullOrWhiteSpace(visual)) return (visual, "{0}");
+        if (!string.IsNullOrWhiteSpace(editor)) return (editor, "{0}");
+        if (OperatingSystem.IsWindows()) return ("notepad", "{0}");
+        return ("nano", "{0}"); // fall back to nano; user can close and set EDITOR if they prefer vi
+    }
+
+    private static string QuoteIfNeeded(string path)
+        => path.Contains(' ') ? $"\"{path}\"" : path;
 
     private static string ReadLineWithInitial(string initial)
     {
@@ -1177,7 +2288,44 @@ internal sealed class EditorApp
         }
     }
 
-    private void ComputeLayout(int totalWidth, bool includeValue, out int keyWidth, out int labelWidth, out int valueWidth)
+    private void ConsolidateDuplicates()
+    {
+        var groups = _items.GroupBy(i => MakeKey(i.FullKey, i.Label)).ToList();
+        foreach (var g in groups)
+        {
+            if (g.Count() <= 1) continue;
+            var keep = g.FirstOrDefault(i => i.State != ItemState.Deleted) ?? g.First();
+            foreach (var extra in g)
+            {
+                if (!ReferenceEquals(extra, keep))
+                {
+                    _items.Remove(extra);
+                }
+            }
+        }
+    }
+
+    private sealed class TupleKeyComparer : IEqualityComparer<(string ShortKey, string? Label)>
+    {
+        public bool Equals((string ShortKey, string? Label) x, (string ShortKey, string? Label) y)
+        {
+            return string.Equals(x.ShortKey, y.ShortKey, StringComparison.Ordinal)
+                && string.Equals(x.Label ?? string.Empty, y.Label ?? string.Empty, StringComparison.Ordinal);
+        }
+
+        public int GetHashCode((string ShortKey, string? Label) obj)
+        {
+            unchecked
+            {
+                int h = 17;
+                h = h * 31 + obj.ShortKey.GetHashCode();
+                h = h * 31 + (obj.Label ?? string.Empty).GetHashCode();
+                return h;
+            }
+        }
+    }
+
+    private void ComputeLayout(int totalWidth, bool includeValue, IReadOnlyList<Item> items, out int keyWidth, out int labelWidth, out int valueWidth)
     {
         const int minKey = 15;
         const int maxKey = 80;
@@ -1186,7 +2334,7 @@ internal sealed class EditorApp
         const int minValue = 10;
 
         // Determine label width from data (clamped)
-        var labelMax = Math.Max(6, _items.Select(i => (i.Label ?? "(none)").Length).DefaultIfEmpty(6).Max());
+        var labelMax = Math.Max(6, items.Select(i => (string.IsNullOrEmpty(i.Label) ? "(none)" : i.Label!).Length).DefaultIfEmpty(6).Max());
         labelWidth = Math.Clamp(labelMax, minLabel, maxLabel);
 
         // Fixed non-column characters in a row
@@ -1195,7 +2343,7 @@ internal sealed class EditorApp
         // Available space for key + label (+ value)
         int available = totalWidth - (fixedChars + labelWidth);
 
-        int longestKey = _items.Select(i => i.ShortKey.Length).DefaultIfEmpty(minKey).Max();
+        int longestKey = items.Select(i => i.ShortKey.Length).DefaultIfEmpty(minKey).Max();
 
         if (includeValue)
         {
@@ -1233,5 +2381,185 @@ internal sealed class EditorApp
             keyWidth = Math.Clamp(longestKey, minKey, Math.Min(maxKey, available));
             valueWidth = 0;
         }
+    }
+
+    private List<Item> GetVisibleItems()
+    {
+        if (_keyRegex is null) return new List<Item>(_items);
+        return _items.Where(i => _keyRegex.IsMatch(i.ShortKey)).ToList();
+    }
+
+    // Helpers for building nested object/list structure from split keys
+    private void AddPathToTree(Dictionary<string, object> node, string[] segments, string value)
+    {
+        if (segments.Length == 0)
+        {
+            node["__value"] = value;
+            return;
+        }
+        var head = segments[0];
+        if (!node.TryGetValue(head, out var child))
+        {
+            if (segments.Length == 1)
+            {
+                node[head] = value;
+                return;
+            }
+            bool nextIsIndex = int.TryParse(segments[1], out _);
+            if (nextIsIndex)
+            {
+                var list = new List<object?>();
+                node[head] = list;
+                AddPathToList(list, segments[1..], value);
+            }
+            else
+            {
+                var dict = new Dictionary<string, object>(StringComparer.Ordinal);
+                node[head] = dict;
+                AddPathToTree(dict, segments[1..], value);
+            }
+        }
+        else if (child is string s)
+        {
+            bool nextIsIndex = segments.Length > 1 && int.TryParse(segments[1], out _);
+            if (nextIsIndex)
+            {
+                var list = new List<object?>();
+                node[head] = list;
+                AddPathToList(list, segments[1..], value);
+            }
+            else
+            {
+                var dict = new Dictionary<string, object>(StringComparer.Ordinal) { ["__value"] = s };
+                node[head] = dict;
+                AddPathToTree(dict, segments[1..], value);
+            }
+        }
+        else if (child is Dictionary<string, object> dict)
+        {
+            if (segments.Length == 1)
+            {
+                dict["__value"] = value;
+            }
+            else
+            {
+                AddPathToTree(dict, segments[1..], value);
+            }
+        }
+        else if (child is List<object?> list)
+        {
+            AddPathToList(list, segments[1..], value);
+        }
+    }
+
+    private void AddPathToList(List<object?> list, string[] segments, string value)
+    {
+        if (segments.Length == 0) return;
+        var idxStr = segments[0];
+        if (!int.TryParse(idxStr, out int idx))
+        {
+            EnsureListSize(list, 1);
+            var head = 0;
+            if (list[head] is not Dictionary<string, object> d)
+            {
+                d = new Dictionary<string, object>(StringComparer.Ordinal);
+                list[head] = d;
+            }
+            AddPathToTree(d, segments, value);
+            return;
+        }
+        EnsureListSize(list, idx + 1);
+        var child = list[idx];
+        if (segments.Length == 1)
+        {
+            list[idx] = value;
+            return;
+        }
+        bool nextIsIndex = int.TryParse(segments[1], out _);
+        if (child is null)
+        {
+            if (nextIsIndex)
+            {
+                var inner = new List<object?>();
+                list[idx] = inner;
+                AddPathToList(inner, segments[1..], value);
+            }
+            else
+            {
+                var d = new Dictionary<string, object>(StringComparer.Ordinal);
+                list[idx] = d;
+                AddPathToTree(d, segments[1..], value);
+            }
+        }
+        else if (child is string s)
+        {
+            if (nextIsIndex)
+            {
+                var inner = new List<object?>();
+                list[idx] = inner;
+                AddPathToList(inner, segments[1..], value);
+            }
+            else
+            {
+                var d = new Dictionary<string, object>(StringComparer.Ordinal) { ["__value"] = s };
+                list[idx] = d;
+                AddPathToTree(d, segments[1..], value);
+            }
+        }
+        else if (child is Dictionary<string, object> d2)
+        {
+            AddPathToTree(d2, segments[1..], value);
+        }
+        else if (child is List<object?> l)
+        {
+            AddPathToList(l, segments[1..], value);
+        }
+    }
+
+    private static void EnsureListSize(List<object?> list, int size)
+    {
+        while (list.Count < size) list.Add(null);
+    }
+
+    private void SetKeyRegex(string[] args)
+    {
+        if (args.Length == 0)
+        {
+            _keyRegexPattern = null;
+            _keyRegex = null;
+            return;
+        }
+        var pattern = string.Join(' ', args);
+        try
+        {
+            _keyRegex = new Regex(pattern, RegexOptions.IgnoreCase | RegexOptions.Compiled);
+            _keyRegexPattern = pattern;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Invalid regex: {ex.Message}");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+        }
+    }
+
+    private List<int>? MapVisibleRangeToItemIndices(int start, int end, out string error)
+    {
+        error = string.Empty;
+        var vis = GetVisibleItems();
+        if (start < 1 || end < 1 || start > vis.Count || end > vis.Count)
+        {
+            error = "Index out of range.";
+            return null;
+        }
+        if (start > end) (start, end) = (end, start);
+        var result = new List<int>();
+        for (int i = start - 1; i <= end - 1; i++)
+        {
+            var target = vis[i];
+            var idx = _items.IndexOf(target);
+            if (idx >= 0) result.Add(idx);
+        }
+        return result;
     }
 }
