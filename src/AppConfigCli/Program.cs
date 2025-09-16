@@ -555,10 +555,10 @@ internal sealed class EditorApp
     public async Task LoadAsync()
     {
         // Build server snapshot
-        var selector = new SettingSelector
+            var selector = new SettingSelector
         {
             KeyFilter = string.IsNullOrWhiteSpace(_prefix) ? "*" : _prefix + "*",
-            LabelFilter = ToLabelFilter(_label)
+            LabelFilter = AppConfigCli.Core.LabelFilter.ForSelector(_label)
         };
         var server = new List<CoreConfigEntry>();
         await foreach (var s in _client.GetConfigurationSettingsAsync(selector))
@@ -706,18 +706,7 @@ internal sealed class EditorApp
         label = rest.Length == 0 ? null : rest;
     }
 
-    private static string? ToLabelFilter(string? label)
-    {
-        if (label is null) return null; // any label
-        if (label.Length == 0) return "\0"; // special filter for empty label
-        return label;
-    }
-
-    private static string? ToWriteLabel(string? label)
-    {
-        // When writing/deleting, use null for the empty label
-        return string.IsNullOrEmpty(label) ? null : label;
-    }
+    
 
     private void Render()
     {
@@ -1155,7 +1144,7 @@ internal sealed class EditorApp
         {
             try
             {
-                var setting = new ConfigurationSetting(item.FullKey, item.Value ?? string.Empty, ToWriteLabel(item.Label));
+                var setting = new ConfigurationSetting(item.FullKey, item.Value ?? string.Empty, AppConfigCli.Core.LabelFilter.ForWrite(item.Label));
                 await _client.SetConfigurationSettingAsync(setting);
                 item.OriginalValue = item.Value;
                 item.State = ItemState.Unchanged;
@@ -1172,7 +1161,7 @@ internal sealed class EditorApp
         {
             try
             {
-                await _client.DeleteConfigurationSettingAsync(item.FullKey, ToWriteLabel(item.Label));
+                await _client.DeleteConfigurationSettingAsync(item.FullKey, AppConfigCli.Core.LabelFilter.ForWrite(item.Label));
                 _items.Remove(item);
                 changes++;
             }
