@@ -4,6 +4,7 @@ using System.Text;
 using Azure.Identity;
 using Azure.Core;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace AppConfigCli;
 
@@ -400,6 +401,8 @@ internal sealed class EditorApp
     private readonly List<Item> _items = new();
     private readonly Func<Task>? _whoAmI;
     private readonly string _authModeDesc;
+    private string? _keyRegexPattern;
+    private Regex? _keyRegex;
 
     public EditorApp(ConfigurationClient client, string? prefix, string? label, Func<Task>? whoAmI = null, string authModeDesc = "")
     {
@@ -535,6 +538,10 @@ internal sealed class EditorApp
                 case "undo":
                     Undo(parts.Skip(1).ToArray());
                     break;
+                case "g":
+                case "grep":
+                    SetKeyRegex(parts.Skip(1).ToArray());
+                    break;
                 case "label":
                 case "l":
                     await ChangeLabelAsync(parts.Skip(1).ToArray());
@@ -627,11 +634,13 @@ internal sealed class EditorApp
         Console.WriteLine($"Azure App Configuration Editor");
         var prefixDisplay = string.IsNullOrWhiteSpace(_prefix) ? "(none)" : _prefix;
         var labelDisplay = _label is null ? "(any)" : (_label.Length == 0 ? "(none)" : _label);
-        Console.WriteLine($"Prefix: '{prefixDisplay}'   Label filter: '{labelDisplay}'   Auth: {_authModeDesc}");
+        var keyRegexDisplay = string.IsNullOrEmpty(_keyRegexPattern) ? "(none)" : _keyRegexPattern;
+        Console.WriteLine($"Prefix: '{prefixDisplay}'   Label filter: '{labelDisplay}'   Key regex: '{keyRegexDisplay}'   Auth: {_authModeDesc}");
 
         var width = GetWindowWidth();
         bool includeValue = width >= 60; // minimal width for value column
-        ComputeLayout(width, includeValue, out var keyWidth, out var labelWidth, out var valueWidth);
+        var visible = GetVisibleItems();
+        ComputeLayout(width, includeValue, visible, out var keyWidth, out var labelWidth, out var valueWidth);
 
         Console.WriteLine(new string('-', width));
         if (includeValue)
@@ -640,9 +649,9 @@ internal sealed class EditorApp
             Console.WriteLine($"Idx  S  {PadColumn("Key", keyWidth)}  {PadColumn("Label", labelWidth)}");
         Console.WriteLine(new string('-', width));
 
-        for (int i = 0; i < _items.Count; i++)
+        for (int i = 0; i < visible.Count; i++)
         {
-            var item = _items[i];
+            var item = visible[i];
             var s = item.State switch
             {
                 ItemState.New => '+',
@@ -666,7 +675,7 @@ internal sealed class EditorApp
         }
 
         Console.WriteLine();
-        Console.WriteLine("Commands: a|add, c|copy <n> [m], d|delete <n> [m], e|edit <n>, h|help, l|label [value], o|open, p|prefix [value], q|quit, r|reload, s|save, u|undo <n> [m]|all, w|whoami");
+        Console.WriteLine("Commands: a|add, c|copy <n> [m], d|delete <n> [m], e|edit <n>, g|grep [regex], h|help, l|label [value], o|open, p|prefix [value], q|quit, r|reload, s|save, u|undo <n> [m]|all, w|whoami");
     }
 
     private void ShowHelp()
@@ -678,6 +687,7 @@ internal sealed class EditorApp
         Console.WriteLine("c|copy <n> [m]   Copy rows n..m to another label and switch");
         Console.WriteLine("d|delete <n> [m] Delete items n..m");
         Console.WriteLine("e|edit <n>       Edit value of item number n");
+        Console.WriteLine("g|grep [regex]   Set key regex filter (no arg clears)");
         Console.WriteLine("h|help|?         Show this help");
         Console.WriteLine("o|open           Edit all visible items in external editor");
         Console.WriteLine("p|prefix [value] Change prefix (no arg prompts)");
@@ -775,16 +785,13 @@ internal sealed class EditorApp
         if (!int.TryParse(args[0], out int start)) { Console.WriteLine("First argument must be an index."); Console.ReadLine(); return; }
         int end = start;
         if (args.Length >= 2 && int.TryParse(args[1], out int endParsed)) end = endParsed;
-        if (start < 1 || end < 1 || start > _items.Count || end > _items.Count)
-        {
-            Console.WriteLine("Index out of range."); Console.ReadLine(); return;
-        }
-        if (start > end) (start, end) = (end, start);
+        var actualIndices = MapVisibleRangeToItemIndices(start, end, out var error);
+        if (actualIndices is null) { Console.WriteLine(error); Console.ReadLine(); return; }
 
         var selection = new List<(string ShortKey, string Value)>();
-        for (int i = start - 1; i <= end - 1; i++)
+        foreach (var idx in actualIndices)
         {
-            var it = _items[i];
+            var it = _items[idx];
             if (it.State == ItemState.Deleted) continue;
             var val = it.Value ?? string.Empty;
             selection.Add((it.ShortKey, val));
@@ -850,16 +857,11 @@ internal sealed class EditorApp
         if (!int.TryParse(args[0], out int start)) { Console.WriteLine("First argument must be an index."); Console.ReadLine(); return; }
         int end = start;
         if (args.Length >= 2 && int.TryParse(args[1], out int endParsed)) end = endParsed;
-        if (start < 1 || end < 1 || start > _items.Count || end > _items.Count)
-        {
-            Console.WriteLine("Index out of range."); Console.ReadLine(); return;
-        }
-        if (start > end) (start, end) = (end, start);
+        var actualIndices = MapVisibleRangeToItemIndices(start, end, out var error);
+        if (actualIndices is null) { Console.WriteLine(error); Console.ReadLine(); return; }
 
-        // Build index list and process from highest to lowest to avoid shifting
         int removedNew = 0, markedExisting = 0;
-        var indices = Enumerable.Range(start - 1, end - start + 1).OrderByDescending(i => i).ToList();
-        foreach (var idx in indices)
+        foreach (var idx in actualIndices.OrderByDescending(i => i))
         {
             var item = _items[idx];
             if (item.IsNew)
@@ -898,16 +900,11 @@ internal sealed class EditorApp
         if (!int.TryParse(args[0], out int start)) { Console.WriteLine("First argument must be an index or 'all'."); Console.ReadLine(); return; }
         int end = start;
         if (args.Length >= 2 && int.TryParse(args[1], out int endParsed)) end = endParsed;
-        if (start < 1 || end < 1 || start > _items.Count || end > _items.Count)
-        {
-            Console.WriteLine("Index out of range."); Console.ReadLine(); return;
-        }
-        if (start > end) (start, end) = (end, start);
+        var actualIndices = MapVisibleRangeToItemIndices(start, end, out var error);
+        if (actualIndices is null) { Console.WriteLine(error); Console.ReadLine(); return; }
 
         int removedNew = 0, restored = 0, untouched = 0;
-        // Process descending indices if removal may happen
-        var indices = Enumerable.Range(start - 1, end - start + 1).OrderByDescending(i => i).ToList();
-        foreach (var idx in indices)
+        foreach (var idx in actualIndices.OrderByDescending(i => i))
         {
             if (idx < 0 || idx >= _items.Count) { continue; }
             var item = _items[idx];
@@ -981,12 +978,14 @@ internal sealed class EditorApp
             return false;
         }
         n -= 1;
-        if (n < 0 || n >= _items.Count)
+        var vis = GetVisibleItems();
+        if (n < 0 || n >= vis.Count)
         {
             Console.WriteLine("Invalid item number.");
             return false;
         }
-        idx = n;
+        var target = vis[n];
+        idx = _items.IndexOf(target);
         return true;
     }
 
@@ -1122,7 +1121,7 @@ internal sealed class EditorApp
             sb.AppendLine("# Format: shortKey<TAB>value");
             sb.AppendLine(@"# Escape: newline as \n, tab as \t, backslash as \\");
             sb.AppendLine("# Delete a key by removing its line. Add by adding a new line.");
-            foreach (var it in _items.Where(i => i.State != ItemState.Deleted))
+            foreach (var it in GetVisibleItems().Where(i => i.State != ItemState.Deleted))
             {
                 var key = it.ShortKey;
                 var valEsc = EscapeValue(it.Value ?? string.Empty);
@@ -1171,7 +1170,7 @@ internal sealed class EditorApp
             }
 
             // Build current map for visible (non-deleted) items (under active label)
-            var current = _items.Where(i => i.State != ItemState.Deleted)
+            var current = GetVisibleItems().Where(i => i.State != ItemState.Deleted)
                                 .ToDictionary(i => i.ShortKey, i => i, StringComparer.Ordinal);
 
             int created = 0, updated = 0, deleted = 0;
@@ -1213,20 +1212,37 @@ internal sealed class EditorApp
                 }
                 else
                 {
-                    var fullKey = (_prefix ?? string.Empty) + key;
-                    _items.Add(new Item
+                    // If a matching item exists but is marked Deleted, resurrect instead of creating duplicate
+                    var resurrect = _items.FirstOrDefault(i =>
+                        string.Equals(i.ShortKey, key, StringComparison.Ordinal) &&
+                        string.Equals(i.Label ?? string.Empty, _label ?? string.Empty, StringComparison.Ordinal) &&
+                        i.State == ItemState.Deleted);
+                    if (resurrect is not null)
                     {
-                        FullKey = fullKey,
-                        ShortKey = key,
-                        Label = _label,
-                        OriginalValue = null,
-                        Value = newVal,
-                        State = ItemState.New
-                    });
-                    created++;
+                        resurrect.Value = newVal;
+                        resurrect.State = string.Equals(resurrect.OriginalValue ?? string.Empty, newVal, StringComparison.Ordinal)
+                            ? ItemState.Unchanged
+                            : ItemState.Modified;
+                        updated++;
+                    }
+                    else
+                    {
+                        var fullKey = (_prefix ?? string.Empty) + key;
+                        _items.Add(new Item
+                        {
+                            FullKey = fullKey,
+                            ShortKey = key,
+                            Label = _label,
+                            OriginalValue = null,
+                            Value = newVal,
+                            State = ItemState.New
+                        });
+                        created++;
+                    }
                 }
             }
 
+            ConsolidateDuplicates();
             _items.Sort(CompareItems);
             Console.WriteLine($"Bulk edit applied for label [{_label ?? "(none)"}]: {created} added, {updated} updated, {deleted} deleted.");
             Console.WriteLine("Press Enter to continue...");
@@ -1423,6 +1439,23 @@ internal sealed class EditorApp
         }
     }
 
+    private void ConsolidateDuplicates()
+    {
+        var groups = _items.GroupBy(i => MakeKey(i.FullKey, i.Label)).ToList();
+        foreach (var g in groups)
+        {
+            if (g.Count() <= 1) continue;
+            var keep = g.FirstOrDefault(i => i.State != ItemState.Deleted) ?? g.First();
+            foreach (var extra in g)
+            {
+                if (!ReferenceEquals(extra, keep))
+                {
+                    _items.Remove(extra);
+                }
+            }
+        }
+    }
+
     private sealed class TupleKeyComparer : IEqualityComparer<(string ShortKey, string? Label)>
     {
         public bool Equals((string ShortKey, string? Label) x, (string ShortKey, string? Label) y)
@@ -1443,7 +1476,7 @@ internal sealed class EditorApp
         }
     }
 
-    private void ComputeLayout(int totalWidth, bool includeValue, out int keyWidth, out int labelWidth, out int valueWidth)
+    private void ComputeLayout(int totalWidth, bool includeValue, IReadOnlyList<Item> items, out int keyWidth, out int labelWidth, out int valueWidth)
     {
         const int minKey = 15;
         const int maxKey = 80;
@@ -1452,7 +1485,7 @@ internal sealed class EditorApp
         const int minValue = 10;
 
         // Determine label width from data (clamped)
-        var labelMax = Math.Max(6, _items.Select(i => (string.IsNullOrEmpty(i.Label) ? "(none)" : i.Label!).Length).DefaultIfEmpty(6).Max());
+        var labelMax = Math.Max(6, items.Select(i => (string.IsNullOrEmpty(i.Label) ? "(none)" : i.Label!).Length).DefaultIfEmpty(6).Max());
         labelWidth = Math.Clamp(labelMax, minLabel, maxLabel);
 
         // Fixed non-column characters in a row
@@ -1461,7 +1494,7 @@ internal sealed class EditorApp
         // Available space for key + label (+ value)
         int available = totalWidth - (fixedChars + labelWidth);
 
-        int longestKey = _items.Select(i => i.ShortKey.Length).DefaultIfEmpty(minKey).Max();
+        int longestKey = items.Select(i => i.ShortKey.Length).DefaultIfEmpty(minKey).Max();
 
         if (includeValue)
         {
@@ -1499,5 +1532,53 @@ internal sealed class EditorApp
             keyWidth = Math.Clamp(longestKey, minKey, Math.Min(maxKey, available));
             valueWidth = 0;
         }
+    }
+
+    private List<Item> GetVisibleItems()
+    {
+        if (_keyRegex is null) return new List<Item>(_items);
+        return _items.Where(i => _keyRegex.IsMatch(i.ShortKey)).ToList();
+    }
+
+    private void SetKeyRegex(string[] args)
+    {
+        if (args.Length == 0)
+        {
+            _keyRegexPattern = null;
+            _keyRegex = null;
+            return;
+        }
+        var pattern = string.Join(' ', args);
+        try
+        {
+            _keyRegex = new Regex(pattern, RegexOptions.IgnoreCase | RegexOptions.Compiled);
+            _keyRegexPattern = pattern;
+        }
+        catch (Exception ex)
+        {
+            Console.WriteLine($"Invalid regex: {ex.Message}");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+        }
+    }
+
+    private List<int>? MapVisibleRangeToItemIndices(int start, int end, out string error)
+    {
+        error = string.Empty;
+        var vis = GetVisibleItems();
+        if (start < 1 || end < 1 || start > vis.Count || end > vis.Count)
+        {
+            error = "Index out of range.";
+            return null;
+        }
+        if (start > end) (start, end) = (end, start);
+        var result = new List<int>();
+        for (int i = start - 1; i <= end - 1; i++)
+        {
+            var target = vis[i];
+            var idx = _items.IndexOf(target);
+            if (idx >= 0) result.Add(idx);
+        }
+        return result;
     }
 }
