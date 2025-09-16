@@ -73,7 +73,8 @@ internal class Program
             whoAmIAction = async () => await WhoAmIAsync(credential, uri);
         }
 
-        var app = new EditorApp(client, options.Prefix, options.Label, whoAmIAction, authModeDesc);
+        var repo = new AzureAppConfigRepository(client);
+        var app = new EditorApp(repo, options.Prefix, options.Label, whoAmIAction, authModeDesc);
         try
         {
             // Helpers to construct nested structure with objects/arrays
@@ -534,7 +535,7 @@ internal sealed class Item
 
 internal sealed class EditorApp
 {
-    private readonly ConfigurationClient _client;
+    private readonly AppConfigCli.Core.IConfigRepository _repo;
     private string? _prefix;
     private string? _label;
     private readonly List<Item> _items = new();
@@ -543,9 +544,9 @@ internal sealed class EditorApp
     private string? _keyRegexPattern;
     private Regex? _keyRegex;
 
-    public EditorApp(ConfigurationClient client, string? prefix, string? label, Func<Task>? whoAmI = null, string authModeDesc = "")
+    public EditorApp(AppConfigCli.Core.IConfigRepository repo, string? prefix, string? label, Func<Task>? whoAmI = null, string authModeDesc = "")
     {
-        _client = client;
+        _repo = repo;
         _prefix = prefix;
         _label = label;
         _whoAmI = whoAmI;
@@ -555,21 +556,7 @@ internal sealed class EditorApp
     public async Task LoadAsync()
     {
         // Build server snapshot
-            var selector = new SettingSelector
-        {
-            KeyFilter = string.IsNullOrWhiteSpace(_prefix) ? "*" : _prefix + "*",
-            LabelFilter = AppConfigCli.Core.LabelFilter.ForSelector(_label)
-        };
-        var server = new List<CoreConfigEntry>();
-        await foreach (var s in _client.GetConfigurationSettingsAsync(selector))
-        {
-            server.Add(new CoreConfigEntry
-            {
-                Key = s.Key,
-                Label = s.Label,
-                Value = s.Value ?? string.Empty
-            });
-        }
+        var server = (await _repo.ListAsync(_prefix, _label)).ToList();
 
         // Map local items to Core using Mapperly
         var mapper = new EditorMappers();
@@ -1149,8 +1136,7 @@ internal sealed class EditorApp
         {
             try
             {
-                var setting = new ConfigurationSetting(up.Key, up.Value ?? string.Empty, up.Label);
-                await _client.SetConfigurationSettingAsync(setting);
+                await _repo.UpsertAsync(up);
 
                 // Mark all corresponding UI items as unchanged and sync OriginalValue
                 foreach (var it in _items.Where(i =>
@@ -1173,7 +1159,7 @@ internal sealed class EditorApp
         {
             try
             {
-                await _client.DeleteConfigurationSettingAsync(del.Key, del.Label);
+                await _repo.DeleteAsync(del.Key, del.Label);
                 // Remove only items marked as Deleted for that key/label
                 for (int idx = _items.Count - 1; idx >= 0; idx--)
                 {
