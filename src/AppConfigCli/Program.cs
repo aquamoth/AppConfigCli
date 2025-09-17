@@ -532,14 +532,18 @@ internal sealed partial class EditorApp
     private readonly string _authModeDesc;
     private string? _keyRegexPattern;
     private Regex? _keyRegex;
+    private readonly IFileSystem _fs;
+    private readonly IExternalEditor _externalEditor;
 
-    public EditorApp(AppConfigCli.Core.IConfigRepository repo, string? prefix, string? label, Func<Task>? whoAmI = null, string authModeDesc = "")
+    public EditorApp(AppConfigCli.Core.IConfigRepository repo, string? prefix, string? label, Func<Task>? whoAmI = null, string authModeDesc = "", IFileSystem? fs = null, IExternalEditor? externalEditor = null)
     {
         _repo = repo;
         _prefix = prefix;
         _label = label;
         _whoAmI = whoAmI;
         _authModeDesc = authModeDesc;
+        _fs = fs ?? new DefaultFileSystem();
+        _externalEditor = externalEditor ?? new DefaultExternalEditor();
     }
 
     public async Task LoadAsync()
@@ -1113,140 +1117,32 @@ internal sealed partial class EditorApp
         }
 
         // Prepare temp file
-        string tmpDir = Path.GetTempPath();
-        string file = Path.Combine(tmpDir, $"appconfig-{Guid.NewGuid():N}.txt");
+        string tmpDir = _fs.GetTempPath();
+        string file = _fs.Combine(tmpDir, $"appconfig-{Guid.NewGuid():N}.txt");
 
         try
         {
-            var sb = new StringBuilder();
-            sb.AppendLine("# AppConfig CLI bulk edit");
-            sb.AppendLine($"# Prefix: {(_prefix ?? "(all)")}");
-            var labelHeader = _label is null ? "(any)" : (_label.Length == 0 ? "(none)" : _label);
-            sb.AppendLine($"# Label: {labelHeader}");
-            sb.AppendLine("# Format: shortKey<TAB>value");
-            sb.AppendLine(@"# Escape: newline as \n, tab as \t, backslash as \\");
-            sb.AppendLine("# Delete a key by removing its line. Add by adding a new line.");
-            foreach (var it in GetVisibleItems().Where(i => i.State != ItemState.Deleted))
-            {
-                var key = it.ShortKey;
-                var valEsc = EscapeValue(it.Value ?? string.Empty);
-                sb.AppendLine(string.Join('\t', new[] { key, valEsc }));
-            }
-            File.WriteAllText(file, sb.ToString());
+            var content = BulkEditHelper.BuildInitialFileContent(GetVisibleItems().Where(i => i.State != ItemState.Deleted), _prefix, _label);
+            _fs.WriteAllText(file, content);
 
             // Launch editor
-            var (editorExe, editorArgsFormat) = GetDefaultEditor();
-            var psi = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = editorExe,
-                Arguments = string.Format(editorArgsFormat, QuoteIfNeeded(file)),
-                UseShellExecute = false,
-                RedirectStandardInput = false,
-                RedirectStandardOutput = false,
-                RedirectStandardError = false,
-            };
             try
             {
-                using var proc = System.Diagnostics.Process.Start(psi);
-                proc?.WaitForExit();
+                _externalEditor.Open(file);
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Failed to launch editor '{editorExe}': {ex.Message}");
+                Console.WriteLine($"Failed to launch editor: {ex.Message}");
                 Console.WriteLine("Press Enter to continue...");
                 Console.ReadLine();
                 return;
             }
 
             // Read back and reconcile
-            var lines = File.ReadAllLines(file);
-            var parsed = new Dictionary<string, string>(StringComparer.Ordinal);
-            foreach (var raw in lines)
-            {
-                if (string.IsNullOrWhiteSpace(raw)) continue;
-                if (raw.TrimStart().StartsWith('#')) continue;
-                var parts = raw.Split('\t', 2);
-                if (parts.Length == 0) continue;
-                string shortKey = parts[0].Trim();
-                if (shortKey.Length == 0) continue;
-                string valueEsc = parts.Length >= 2 ? parts[1] : string.Empty;
-                var value = UnescapeValue(valueEsc);
-                parsed[shortKey] = value;
-            }
-
-            // Build current map for visible (non-deleted) items (under active label)
-            var current = GetVisibleItems().Where(i => i.State != ItemState.Deleted)
-                                .ToDictionary(i => i.ShortKey, i => i, StringComparer.Ordinal);
-
-            int created = 0, updated = 0, deleted = 0;
-
-            // Deletions: present in current but missing in parsed
-            foreach (var kv in current)
-            {
-                if (!parsed.ContainsKey(kv.Key))
-                {
-                    var item = kv.Value;
-                    if (item.IsNew)
-                    {
-                        _items.Remove(item);
-                    }
-                    else
-                    {
-                        item.State = ItemState.Deleted;
-                    }
-                    deleted++;
-                }
-            }
-
-            // Additions/Updates
-            foreach (var kv in parsed)
-            {
-                var key = kv.Key;
-                var newVal = kv.Value;
-                if (current.TryGetValue(key, out var existing))
-                {
-                    existing.Value = newVal;
-                    if (!existing.IsNew)
-                    {
-                        existing.State = string.Equals(existing.OriginalValue ?? string.Empty, newVal, StringComparison.Ordinal)
-                            ? ItemState.Unchanged
-                            : ItemState.Modified;
-                    }
-                    // If IsNew, keep as New even if identical
-                    updated++;
-                }
-                else
-                {
-                    // If a matching item exists but is marked Deleted, resurrect instead of creating duplicate
-                    var resurrect = _items.FirstOrDefault(i =>
-                        string.Equals(i.ShortKey, key, StringComparison.Ordinal) &&
-                        string.Equals(i.Label ?? string.Empty, _label ?? string.Empty, StringComparison.Ordinal) &&
-                        i.State == ItemState.Deleted);
-                    if (resurrect is not null)
-                    {
-                        resurrect.Value = newVal;
-                        resurrect.State = string.Equals(resurrect.OriginalValue ?? string.Empty, newVal, StringComparison.Ordinal)
-                            ? ItemState.Unchanged
-                            : ItemState.Modified;
-                        updated++;
-                    }
-                    else
-                    {
-                        var fullKey = (_prefix ?? string.Empty) + key;
-                        _items.Add(new Item
-                        {
-                            FullKey = fullKey,
-                            ShortKey = key,
-                            Label = _label,
-                            OriginalValue = null,
-                            Value = newVal,
-                            State = ItemState.New
-                        });
-                        created++;
-                    }
-                }
-            }
-
+            var lines = _fs.ReadAllLines(file);
+            var fileText = string.Join("\n", lines);
+            var visibleUnderLabel = GetVisibleItems();
+            var (created, updated, deleted) = BulkEditHelper.ApplyEdits(fileText, _items, visibleUnderLabel, _prefix, _label);
             ConsolidateDuplicates();
             _items.Sort(CompareItems);
             Console.WriteLine($"Bulk edit applied for label [{_label ?? "(none)"}]: {created} added, {updated} updated, {deleted} deleted.");
@@ -1255,7 +1151,7 @@ internal sealed partial class EditorApp
         }
         finally
         {
-            try { if (File.Exists(file)) File.Delete(file); } catch { }
+            _fs.Delete(file);
         }
     }
 
