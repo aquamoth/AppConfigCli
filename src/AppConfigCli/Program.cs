@@ -9,6 +9,7 @@ using System.Collections;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 using AppConfigCli.Core;
+using AppConfigCli.Core.UI;
 using CoreItem = AppConfigCli.Core.Item;
 using CoreItemState = AppConfigCli.Core.ItemState;
 using CoreConfigEntry = AppConfigCli.Core.ConfigEntry;
@@ -707,7 +708,10 @@ internal sealed class EditorApp
         var width = GetWindowWidth();
         bool includeValue = width >= 60; // minimal width for value column
         var visible = GetVisibleItems();
-        ComputeLayout(width, includeValue, visible, out var keyWidth, out var labelWidth, out var valueWidth);
+        // Layout calculation via Core UI helper (map UI -> Core items)
+        var layoutMapper = new EditorMappers();
+        var coreVisible = visible.Select(layoutMapper.ToCoreItem).ToList();
+        TableLayout.Compute(width, includeValue, coreVisible, out var keyWidth, out var labelWidth, out var valueWidth);
 
         Console.WriteLine(new string('-', width));
         if (includeValue)
@@ -726,13 +730,13 @@ internal sealed class EditorApp
                 ItemState.Deleted => '-',
                 _ => ' '
             };
-            var keyDisp = TruncateFixed(item.ShortKey, keyWidth);
+            var keyDisp = TextTruncation.TruncateFixed(item.ShortKey, keyWidth);
             var labelText = string.IsNullOrEmpty(item.Label) ? "(none)" : item.Label;
-            var labelDisp = TruncateFixed(labelText, labelWidth);
+            var labelDisp = TextTruncation.TruncateFixed(labelText, labelWidth);
             if (valueWidth > 0)
             {
                 var valFull = (item.Value ?? string.Empty).Replace('\n', ' ');
-                var val = TruncateFixed(valFull, valueWidth);
+                var val = TextTruncation.TruncateFixed(valFull, valueWidth);
                 Console.WriteLine($"{i + 1,3}  {s}  {PadColumn(keyDisp, keyWidth)}  {PadColumn(labelDisp, labelWidth)}  {val}");
             }
             else
@@ -2041,16 +2045,9 @@ internal sealed class EditorApp
         }
     }
 
-    private static string TruncateFixed(string s, int width)
-    {
-        if (s.Length <= width) return s;
-        if (width <= 1) return new string('…', Math.Max(0, width));
-        return s[..(width - 1)] + "…";
-    }
-
     private static string PadColumn(string text, int width)
     {
-        var t = TruncateFixed(text, width);
+        var t = TextTruncation.TruncateFixed(text, width);
         if (t.Length < width) return t.PadRight(width);
         return t;
     }
@@ -2123,63 +2120,7 @@ internal sealed class EditorApp
         }
     }
 
-    private void ComputeLayout(int totalWidth, bool includeValue, IReadOnlyList<Item> items, out int keyWidth, out int labelWidth, out int valueWidth)
-    {
-        const int minKey = 15;
-        const int maxKey = 80;
-        const int minLabel = 8;
-        const int maxLabel = 25;
-        const int minValue = 10;
-
-        // Determine label width from data (clamped)
-        var labelMax = Math.Max(6, items.Select(i => (string.IsNullOrEmpty(i.Label) ? "(none)" : i.Label!).Length).DefaultIfEmpty(6).Max());
-        labelWidth = Math.Clamp(labelMax, minLabel, maxLabel);
-
-        // Fixed non-column characters in a row
-        int fixedChars = includeValue ? 12 : 10;
-
-        // Available space for key + label (+ value)
-        int available = totalWidth - (fixedChars + labelWidth);
-
-        int longestKey = items.Select(i => i.ShortKey.Length).DefaultIfEmpty(minKey).Max();
-
-        if (includeValue)
-        {
-            if (available < minKey + minValue)
-            {
-                // Squeeze label when very narrow
-                int deficit = (minKey + minValue) - available;
-                labelWidth = Math.Max(minLabel, labelWidth - deficit);
-                available = totalWidth - (fixedChars + labelWidth);
-            }
-
-            int neededKey = Math.Clamp(longestKey, minKey, Math.Min(maxKey, available - minValue));
-            keyWidth = neededKey;
-            valueWidth = available - keyWidth;
-
-            if (valueWidth < minValue)
-            {
-                int shortage = minValue - valueWidth;
-                keyWidth = Math.Max(minKey, keyWidth - shortage);
-                valueWidth = available - keyWidth;
-            }
-
-            keyWidth = Math.Max(minKey, keyWidth);
-            valueWidth = Math.Max(1, valueWidth);
-        }
-        else
-        {
-            if (available < minKey)
-            {
-                int deficit = minKey - available;
-                labelWidth = Math.Max(minLabel, labelWidth - deficit);
-                available = totalWidth - (fixedChars + labelWidth);
-            }
-
-            keyWidth = Math.Clamp(longestKey, minKey, Math.Min(maxKey, available));
-            valueWidth = 0;
-        }
-    }
+    // Layout moved to Core.UI.TableLayout
 
     private List<Item> GetVisibleItems()
     {
