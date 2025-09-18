@@ -1182,39 +1182,19 @@ internal sealed partial class EditorApp
             return;
         }
 
-        string tmpDir = Path.GetTempPath();
-        string file = Path.Combine(tmpDir, $"appconfig-json-{Guid.NewGuid():N}.json");
+        string tmpDir = _fs.GetTempPath();
+        string file = _fs.Combine(tmpDir, $"appconfig-json-{Guid.NewGuid():N}.json");
 
         try
         {
-            // Build flats from visible items under active label
-            var flats = GetVisibleItems()
-                .Where(i => i.State != ItemState.Deleted)
-                .ToDictionary(i => i.ShortKey, i => i.Value ?? string.Empty, StringComparer.Ordinal);
-
-            var root = AppConfigCli.Core.FlatKeyMapper.BuildTree(flats, sep);
-            var json = JsonSerializer.Serialize(root, new JsonSerializerOptions { WriteIndented = true });
-            File.WriteAllText(file, json);
+            var json = StructuredEditHelper.BuildJsonContent(GetVisibleItems(), sep);
+            _fs.WriteAllText(file, json);
 
             // Launch editor
-            var (editorExe, editorArgsFormat) = GetDefaultEditor();
-            var psi = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = editorExe,
-                Arguments = string.Format(editorArgsFormat, QuoteIfNeeded(file)),
-                UseShellExecute = false,
-                RedirectStandardInput = false,
-                RedirectStandardOutput = false,
-                RedirectStandardError = false,
-            };
-            try
-            {
-                using var proc = System.Diagnostics.Process.Start(psi);
-                proc?.WaitForExit();
-            }
+            try { _externalEditor.Open(file); }
             catch (Exception ex)
             {
-                Console.WriteLine($"Failed to launch editor '{editorExe}': {ex.Message}");
+                Console.WriteLine($"Failed to launch editor: {ex.Message}");
                 Console.WriteLine("Press Enter to continue...");
                 Console.ReadLine();
                 return;
@@ -1224,11 +1204,11 @@ internal sealed partial class EditorApp
             Dictionary<string, string> parsed;
             try
             {
-                var text = File.ReadAllText(file);
+                var text = string.Join("\n", _fs.ReadAllLines(file));
                 using var doc = JsonDocument.Parse(text);
                 if (doc.RootElement.ValueKind != JsonValueKind.Object)
                 {
-                    Console.WriteLine("Top-level JSON must be an object.");
+                    Console.WriteLine($"Invalid JSON: Top-level JSON must be an object.");
                     Console.WriteLine("Press Enter to continue...");
                     Console.ReadLine();
                     return;
@@ -1397,8 +1377,8 @@ internal sealed partial class EditorApp
             return;
         }
 
-        string tmpDir = Path.GetTempPath();
-        string file = Path.Combine(tmpDir, $"appconfig-yaml-{Guid.NewGuid():N}.yaml");
+        string tmpDir = _fs.GetTempPath();
+        string file = _fs.Combine(tmpDir, $"appconfig-yaml-{Guid.NewGuid():N}.yaml");
 
         try
         {
@@ -1544,34 +1524,22 @@ internal sealed partial class EditorApp
             File.WriteAllText(file, yaml);
 
             // Launch editor
-            var (editorExe, editorArgsFormat) = GetDefaultEditor();
-            var psi = new System.Diagnostics.ProcessStartInfo
-            {
-                FileName = editorExe,
-                Arguments = string.Format(editorArgsFormat, QuoteIfNeeded(file)),
-                UseShellExecute = false,
-                RedirectStandardInput = false,
-                RedirectStandardOutput = false,
-                RedirectStandardError = false,
-            };
-            try
-            {
-                using var proc = System.Diagnostics.Process.Start(psi);
-                proc?.WaitForExit();
-            }
+            try { _externalEditor.Open(file); }
             catch (Exception ex)
             {
-                Console.WriteLine($"Failed to launch editor '{editorExe}': {ex.Message}");
+                Console.WriteLine($"Failed to launch editor: {ex.Message}");
                 Console.WriteLine("Press Enter to continue...");
                 Console.ReadLine();
                 return;
             }
 
+            
+
             // Parse edited YAML via FlatKeyMapper
             Dictionary<string, string> parsed;
             try
             {
-                var text = File.ReadAllText(file);
+                var text = string.Join("\n", _fs.ReadAllLines(file));
                 var deserializer = new DeserializerBuilder().Build();
                 var rootObj = deserializer.Deserialize<object?>(text);
                 if (rootObj is not IDictionary<object, object>)

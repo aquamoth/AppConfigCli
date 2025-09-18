@@ -1,0 +1,95 @@
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Text.Json;
+using YamlDotNet.Serialization;
+using YamlDotNet.Serialization.NamingConventions;
+using AppConfigCli.Core;
+
+namespace AppConfigCli;
+
+internal static class StructuredEditHelper
+{
+    public static string BuildJsonContent(IEnumerable<Item> visibleItems, string separator)
+    {
+        var flats = visibleItems
+            .Where(i => i.State != ItemState.Deleted)
+            .ToDictionary(i => i.ShortKey, i => i.Value ?? string.Empty, StringComparer.Ordinal);
+        var root = FlatKeyMapper.BuildTree(flats, separator);
+        return JsonSerializer.Serialize(root, new JsonSerializerOptions { WriteIndented = true });
+    }
+
+    public static (bool Ok, string Error, int Created, int Updated, int Deleted) ApplyJsonEdits(string json, string separator, List<Item> allItems, IEnumerable<Item> visibleUnderLabel, string? prefix, string? activeLabel)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(json);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object)
+            {
+                return (false, "Top-level JSON must be an object.", 0, 0, 0);
+            }
+
+            object Convert(JsonElement el)
+            {
+                switch (el.ValueKind)
+                {
+                    case JsonValueKind.Object:
+                        var d = new Dictionary<string, object>(StringComparer.Ordinal);
+                        foreach (var p in el.EnumerateObject()) d[p.Name] = Convert(p.Value);
+                        return d;
+                    case JsonValueKind.Array:
+                        var list = new List<object?>();
+                        foreach (var v in el.EnumerateArray()) list.Add(Convert(v));
+                        return list;
+                    case JsonValueKind.String: return el.GetString() ?? string.Empty;
+                    case JsonValueKind.Number: return el.ToString();
+                    case JsonValueKind.True: return "true";
+                    case JsonValueKind.False: return "false";
+                    case JsonValueKind.Null: return string.Empty;
+                    default: return el.ToString();
+                }
+            }
+
+            var rootObj = Convert(doc.RootElement);
+            var flats = FlatKeyMapper.Flatten(rootObj, separator);
+            var content = string.Join("\n", flats.Select(kv => kv.Key + "\t" + BulkEditHelper.EscapeValue(kv.Value)));
+            var (c, u, d) = BulkEditHelper.ApplyEdits(content, allItems, visibleUnderLabel, prefix, activeLabel);
+            return (true, string.Empty, c, u, d);
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message, 0, 0, 0);
+        }
+    }
+
+    public static string BuildYamlContent(IEnumerable<Item> visibleItems, string separator)
+    {
+        var flats = visibleItems
+            .Where(i => i.State != ItemState.Deleted)
+            .ToDictionary(i => i.ShortKey, i => i.Value ?? string.Empty, StringComparer.Ordinal);
+        var root = FlatKeyMapper.BuildTree(flats, separator);
+        var ser = new SerializerBuilder().WithNamingConvention(NullNamingConvention.Instance).Build();
+        return ser.Serialize(root);
+    }
+
+    public static (bool Ok, string Error, int Created, int Updated, int Deleted) ApplyYamlEdits(string yaml, string separator, List<Item> allItems, IEnumerable<Item> visibleUnderLabel, string? prefix, string? activeLabel)
+    {
+        try
+        {
+            var deser = new DeserializerBuilder().WithNamingConvention(NullNamingConvention.Instance).Build();
+            var obj = deser.Deserialize<object>(yaml);
+            if (obj is not Dictionary<string, object> && obj is not List<object?>)
+            {
+                return (false, "Top-level YAML must be an object or array.", 0, 0, 0);
+            }
+            var flats = FlatKeyMapper.Flatten(obj!, separator);
+            var content = string.Join("\n", flats.Select(kv => kv.Key + "\t" + BulkEditHelper.EscapeValue(kv.Value)));
+            var (c, u, d) = BulkEditHelper.ApplyEdits(content, allItems, visibleUnderLabel, prefix, activeLabel);
+            return (true, string.Empty, c, u, d);
+        }
+        catch (Exception ex)
+        {
+            return (false, ex.Message, 0, 0, 0);
+        }
+    }
+}
