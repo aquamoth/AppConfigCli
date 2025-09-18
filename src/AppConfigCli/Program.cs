@@ -1200,7 +1200,24 @@ internal sealed partial class EditorApp
                 return;
             }
 
-            // Parse edited JSON via FlatKeyMapper
+            // Apply edits via StructuredEditHelper and return
+            var editedJson = string.Join("\n", _fs.ReadAllLines(file));
+            var (ok, err, cJ, uJ, dJ) = StructuredEditHelper.ApplyJsonEdits(editedJson, sep, _items, GetVisibleItems(), _prefix, _label);
+            if (!ok)
+            {
+                Console.WriteLine($"Invalid JSON: {err}");
+                Console.WriteLine("Press Enter to continue...");
+                Console.ReadLine();
+                return;
+            }
+            ConsolidateDuplicates();
+            _items.Sort(CompareItems);
+            Console.WriteLine($"JSON edit applied for label [{(_label?.Length == 0 ? "(none)" : _label) ?? "(any)"}]: {cJ} added, {uJ} updated, {dJ} deleted.");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+            return;
+
+            // Parse edited JSON via FlatKeyMapper (legacy path kept but bypassed)
             Dictionary<string, string> parsed;
             try
             {
@@ -1340,7 +1357,7 @@ internal sealed partial class EditorApp
 
             ConsolidateDuplicates();
             _items.Sort(CompareItems);
-            Console.WriteLine($"JSON edit applied for label [{(_label?.Length == 0 ? "(none)" : _label) ?? "(any)"}]: {created} added, {updated} updated, {deleted} deleted.");
+            Console.WriteLine($"JSON edit applied for label [{(_label?.Length == 0 ? "(none)" : _label) ?? "(any)"}]: {cJ} added, {uJ} updated, {dJ} deleted.");
             Console.WriteLine("Press Enter to continue...");
             Console.ReadLine();
         }
@@ -1535,7 +1552,24 @@ internal sealed partial class EditorApp
 
             
 
-            // Parse edited YAML via FlatKeyMapper
+            // Apply edits via StructuredEditHelper and return
+            var editedYaml = string.Join("\n", _fs.ReadAllLines(file));
+            var (ok2, err2, c2, u2, d2) = StructuredEditHelper.ApplyYamlEdits(editedYaml, sep, _items, GetVisibleItems(), _prefix, _label);
+            if (!ok2)
+            {
+                Console.WriteLine($"Invalid YAML: {err2}");
+                Console.WriteLine("Press Enter to continue...");
+                Console.ReadLine();
+                return;
+            }
+            ConsolidateDuplicates();
+            _items.Sort(CompareItems);
+            Console.WriteLine($"YAML edit applied for label [{(_label?.Length == 0 ? "(none)" : _label) ?? "(any)"}]: {c2} added, {u2} updated, {d2} deleted.");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+            return;
+
+            // Parse edited YAML via FlatKeyMapper (legacy path kept but bypassed)
             Dictionary<string, string> parsed;
             try
             {
