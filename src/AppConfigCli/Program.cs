@@ -1108,6 +1108,7 @@ internal sealed partial class EditorApp
 
     private async Task OpenInEditorAsync()
     {
+        await Task.CompletedTask;
         if (_label is null)
         {
             Console.WriteLine("Open requires an active label filter. Set one with l|label <value> first.");
@@ -1157,6 +1158,7 @@ internal sealed partial class EditorApp
 
     private async Task OpenJsonInEditorAsync(string[] args)
     {
+        await Task.CompletedTask;
         if (_label is null)
         {
             Console.WriteLine("json requires an active label filter. Set one with l|label <value> first.");
@@ -1227,6 +1229,7 @@ internal sealed partial class EditorApp
 
     private async Task OpenYamlInEditorAsync(string[] args)
     {
+        await Task.CompletedTask;
         if (_label is null)
         {
             Console.WriteLine("yaml requires an active label filter. Set one with l|label <value> first.");
