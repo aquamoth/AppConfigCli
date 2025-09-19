@@ -8,6 +8,8 @@ on:
 
 permissions:
   contents: read
+  pull-requests: write     # needed to comment on PRs
+  issues: write            # comments use the issues API under the hood
 
 jobs:
   build-test:
@@ -16,7 +18,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          fetch-depth: 0  # required for NBGV to read git history
+          fetch-depth: 0
 
       - name: Setup .NET 9
         uses: actions/setup-dotnet@v4
@@ -29,6 +31,41 @@ jobs:
       - name: Build
         run: dotnet build CodexAppConfig.sln --configuration Release --nologo --verbosity minimal
 
-      - name: Test
-        run: dotnet test CodexAppConfig.sln --configuration Release --nologo --verbosity minimal
+      - name: Test with coverage
+        run: |
+          dotnet test CodexAppConfig.sln \
+            --configuration Release \
+            --nologo --verbosity minimal \
+            --collect:"XPlat Code Coverage"
+
+      - name: Generate coverage report
+        uses: danielpalme/ReportGenerator-GitHub-Action@v5.3.9
+        with:
+          reports: 'tests/**/TestResults/*/coverage.cobertura.xml'
+          targetdir: 'coveragereport'
+          reporttypes: 'HtmlInline;MarkdownSummary;Cobertura'
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coveragereport
+
+      - name: Add coverage to job summary
+        run: |
+          echo "## Code Coverage" >> $GITHUB_STEP_SUMMARY
+          if [ -f coveragereport/Summary.md ]; then
+            cat coveragereport/Summary.md >> $GITHUB_STEP_SUMMARY
+          else
+            echo "No coverage summary found." >> $GITHUB_STEP_SUMMARY
+          fi
+
+      - name: Comment coverage on PR
+        if: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false }}
+        uses: marocchino/sticky-pull-request-comment@v2
+        with:
+          recreate: true
+          path: coveragereport/Summary.md
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
