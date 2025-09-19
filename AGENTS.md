@@ -3,8 +3,8 @@ Project: Keyboard-first Azure App Configuration CLI (C# .NET 9)
 Goal
 - Provide a fast, cross-platform, keyboard-only CLI to browse, edit, copy, and manage key/values in Azure App Configuration under a given prefix ("section"), with label awareness and safe merging back to Azure.
 
-Current State (2025-09)
-- Tech: .NET 9 console app in `src/AppConfigCli`. Single entry: `Program.cs`.
+Current State (2025-09-19)
+- Tech: .NET 9 console app in `src/AppConfigCli` with core domain in `src/AppConfigCli.Core`.
 - Auth:
   - Connection string via `APP_CONFIG_CONNECTION_STRING` (RW keys).
   - Azure AD fallback when no connection string: endpoint discovery + sign-in using chained credentials with `--auth` control.
@@ -25,12 +25,8 @@ Core Features
 - Undo: u|undo <n> [m]|all supports range or “all”; removes New, restores Deleted/Modified to Unchanged; prints summary.
 - Copy: c|copy <n> [m] copies a range from current label to a target label; then switches filter to target; prints created/updated summary.
 - Label filter: l|label [value] sets/clears at runtime (no arg clears). Changing label reloads.
-- Reload: r|reload fetches from Azure and reconciles with pending local edits:
-  - If server now matches local edit → mark Unchanged.
-  - Locally Modified but deleted on server → become New (will add back on save).
-  - Locally Deleted but already deleted on server → drop.
-  - Locally New that appeared on server → Unchanged or Modified depending on value.
-- Save: s|save upserts Modified/New and deletes Deleted; prints summary.
+- Reload: r|reload fetches from Azure and reconciles with pending local edits (Unchanged/Modified/New rules handled by Core `AppStateReconciler`).
+- Save: s|save upserts Modified/New and deletes Deleted; prints summary (`ChangeApplier`).
 - Safe quit: q|quit|exit warns on unsaved changes; offers Save+Quit, Quit without saving, or Cancel.
 - WhoAmI: w|whoami prints token claims (tid/oid/upn/appid) and endpoint in AAD mode.
 
@@ -68,47 +64,64 @@ Build/Run Quick Start
   - `dotnet run --project src/AppConfigCli -- --prefix app:settings: --auth device`
   - Or force endpoint: `--endpoint https://<name>.azconfig.io` or `--endpoint <name>`
   - Optional: `--tenant <tenant-guid>`
+- Tests: `dotnet test -v minimal` (Core + App test projects; zero warnings on build)
 
 Design Highlights
-- Item state machine: Unchanged, Modified, New, Deleted.
-- Save logic: upsert for New/Modified; delete for Deleted; removes local Deleted rows.
-- Reload reconciliation preserves intent and avoids stale “modified” flags when server matches.
-- Layout: width-aware columns; single-character ellipsis; hides Value on narrow screens.
+- Item state machine: Unchanged, Modified, New, Deleted (Core + UI models mapped via Mapperly).
+- Repository abstraction: `IConfigRepository`, with `AzureAppConfigRepository` and `InMemoryConfigRepository`.
+- Reconciliation: `AppStateReconciler` preserves intent; `ChangeApplier` computes upserts/deletes.
+- Layout helpers (Core): `TextTruncation`, `TableLayout` with unit tests.
+- Filtering helpers (Core): `LabelFilter`, `ItemFilter` with tests (visible indices, range mapping, label semantics).
+- Structured editors:
+  - Bulk text editor (`open`): `BulkEditHelper` handles reconcile from tab-separated edits.
+  - JSON/YAML editors (`json <sep>`, `yaml <sep>`): `StructuredEditHelper` builds/reads via `FlatKeyMapper`, normalizes YAML nodes, and applies using bulk reconcile rules.
+- Editor app modularization:
+  - Partial class split (`EditorApp.UI.cs`), `IFileSystem` and `IExternalEditor` abstractions for testability.
+  - `CommandParser` and `Commands` exist with tests; the main loop still uses the existing switch (parser not yet wired).
+- Zero build warnings (async methods start with `await Task.CompletedTask` where needed).
 
 Known Limitations / Future Enhancements
-- No ETag/concurrency conflict handling; consider using `If-Match` with last ETag to avoid overwrites and prompt on conflicts.
-- No bulk import/export (JSON/YAML) or search/filter in-table.
-- Minimal validation for values (all strings).
-- No test suite; consider unit tests for reconciliation, truncation/layout, and command parsing.
-- Packaging: publish single-file binaries (win-x64/linux-x64), versioning and release scripts.
+- ETag/concurrency not implemented yet (no `If-Match`); plan to add ETag to models and conflict workflow.
+- `CommandParser` not wired into the command loop (exists with tests); wire it and simplify `RunAsync`.
+- Search/quick-jump in table not implemented.
+- Packaging: publish single-file binaries (win-x64/linux-x64), versioning and CI releases.
 
 Next Session: Likely Tasks
-- Add ETag-based conflict detection and resolve flow on save.
-- Add search/filter and quick jump commands.
-- Optional “preview save” summary with planned upserts/deletes before confirming.
-- Packaging: `dotnet publish` self-contained targets; CI for releases.
-- Telemetry/verbose logs toggle.
+- Concurrency: Add optional ETags to Core models; extend repos to support `If-Match`; implement conflict handling UX and tests.
+- Wire `CommandParser` into `RunAsync` to replace switch; add tests for dispatch.
+- Add search/quick-jump commands and tests.
+- Optional: “preview save” summary before committing changes.
+- Packaging/CI: publish self-contained binaries; add GitHub Actions (build, test, coverage artifacts).
 
 Repo Pointers
 - Solution: `CodexAppConfig.sln`
-- App: `src/AppConfigCli` (all logic in `Program.cs` for now)
+- App: `src/AppConfigCli` (CLI + editor; modularized via partials/abstractions)
+- Core: `src/AppConfigCli.Core` (domain, filters, reconciliation, layout)
+- Tests:
+  - `tests/AppConfigCli.Core.Tests` (Core unit tests)
+  - `tests/AppConfigCli.Tests` (App-level tests: parser, range mapper, bulk/structured edit, integration)
 - README: end-user build/run instructions and environment setup
 
 How to Resume Quickly
 1) `dotnet build CodexAppConfig.sln`
-2) Run with your preferred auth:
+2) `dotnet test -v minimal` (should be all green, zero build warnings)
+3) Run with your preferred auth:
    - ConnStr: set `APP_CONFIG_CONNECTION_STRING` → `dotnet run --project src/AppConfigCli -- --prefix <prefix>`
    - AAD: `dotnet run --project src/AppConfigCli -- --prefix <prefix> --auth device` and select a store
-3) Use commands shown in footer (`h` for help). Focus areas: reload reconciliation, table layout, and label workflows.
+4) Try editors:
+   - Bulk text: `o|open`
+   - JSON: `json :` (or your separator)
+   - YAML: `yaml :` (or your separator)
+5) For development, focus on: wiring `CommandParser`, ETag flow, and packaging.
 
-Development Status (2025-09-16)
-- Core extraction started: new library `src/AppConfigCli.Core` with domain models (`Item`, `ConfigEntry`, `ItemState`) and `AppStateReconciler`.
-- Unit tests: new project `tests/AppConfigCli.Core.Tests` with initial reconciliation tests (3) passing.
-- CLI integrates Core: `EditorApp.LoadAsync` now uses `AppStateReconciler`; mappings between CLI models and Core models are generated via `Riok.Mapperly`.
-- Editor roundtrips: text (`open`), JSON (`json <sep>`), YAML (`yaml <sep>`) operate on visible items; arrays supported via numeric subkeys; improved error output for JSON/YAML.
-- Filters: label filter supports `(any)`/`(none)` semantics (empty label via `l -`), and key regex filter (`g|grep`).
-- Bug fixes: external-editor rename flow now resurrects deleted items and consolidates duplicates; refresh no longer crashes.
-- Coverage: `make coverage` runs tests with Coverlet and produces HTML report under `coveragereport/index.html`.
+Development Status (2025-09-19)
+- Modularization:
+  - Split rendering to `EditorApp.UI.cs`; added `IFileSystem`/`IExternalEditor` for testability.
+  - Extracted Bulk/Structured edit helpers; JSON/YAML apply now uses helpers exclusively.
+- Core helpers and filters added with tests: `LabelFilter`, `ItemFilter`, `FlatKeyMapper`, `ChangeApplier`, `TextTruncation`, `TableLayout`.
+- Command parsing and range mapping: `CommandParser`, `Commands`, and `RangeMapper` implemented with tests (parser not yet wired).
+- Integration tests: non-interactive `EditorApp` flows with `InMemoryConfigRepository`.
+- Build is warning-free; tests count: Core 39, App 28.
 
 Refactor & Testing Roadmap (next steps)
 - LabelFilter service (+ tests):

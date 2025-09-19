@@ -62,6 +62,10 @@ make build
 make run prefix=app:settings: label=dev
 ```
 
+### Version
+- Print version: `dotnet run --project src/AppConfigCli -- --version`
+- Versioning uses Nerdbank.GitVersioning; output includes SemVer and commit hash.
+
 ## Usage
 
 - `--prefix <value>`: Optional. Initial key prefix (section) to load; you can change it in-app.
