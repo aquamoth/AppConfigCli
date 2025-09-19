@@ -1,0 +1,74 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      draft:
+        description: "Create release as draft"
+        required: false
+        default: "true"
+        type: choice
+        options: ["true", "false"]
+
+permissions:
+  contents: write  # needed to create tags and releases
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    environment: release
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Setup .NET 9
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Build
+        run: |
+          dotnet restore CodexAppConfig.sln
+          dotnet build CodexAppConfig.sln -c Release --nologo --verbosity minimal
+          dotnet test CodexAppConfig.sln -c Release --nologo --verbosity minimal
+
+      - name: Compute version (NBGV)
+        id: nbgv
+        uses: dotnet/nbgv@v0.4.2
+        with:
+          setAllVars: true
+
+      - name: Show version
+        run: |
+          echo "NBGV_SimpleVersion=${NBGV_SimpleVersion}"
+          echo "NBGV_SemVer2=${NBGV_SemVer2}"
+          echo "NBGV_GitCommitIdShort=${NBGV_GitCommitIdShort}"
+
+      - name: Create tag if missing
+        id: tag
+        run: |
+          TAG="v${NBGV_SimpleVersion}"
+          if git rev-parse "$TAG" >/dev/null 2>&1; then
+            echo "tag_exists=true" >> $GITHUB_OUTPUT
+            echo "Tag $TAG already exists"
+          else
+            git tag "$TAG"
+            git push origin "$TAG"
+            echo "tag_exists=false" >> $GITHUB_OUTPUT
+            echo "Created tag $TAG"
+          fi
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ env.NBGV_SimpleVersion }}
+          name: AppConfigCli v${{ env.NBGV_SimpleVersion }}+${{ env.NBGV_GitCommitIdShort }}
+          draft: ${{ inputs.draft == 'true' }}
+          generate_release_notes: true
+          body: |
+            Commit: ${{ env.NBGV_GitCommitId }} (${{ env.NBGV_GitCommitIdShort }})
+            Version: ${{ env.NBGV_SemVer2 }}
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

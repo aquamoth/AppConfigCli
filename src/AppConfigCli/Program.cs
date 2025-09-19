@@ -21,6 +21,11 @@ internal class Program
     private static async Task<int> Main(string[] args)
     {
         var options = ParseArgs(args);
+        if (options.ShowVersion)
+        {
+            Console.WriteLine(VersionInfo.GetVersionLine());
+            return 0;
+        }
         if (options.ShowHelp)
         {
             PrintHelp();
@@ -448,7 +453,7 @@ internal class Program
     {
         Console.WriteLine("Azure App Configuration Section Editor");
         Console.WriteLine();
-        Console.WriteLine("Usage: appconfig [--prefix <keyPrefix>] [--label <label>] [--endpoint <url>] [--tenant <guid>] [--auth <mode>]");
+        Console.WriteLine("Usage: appconfig [--prefix <keyPrefix>] [--label <label>] [--endpoint <url>] [--tenant <guid>] [--auth <mode>] [--version]");
         Console.WriteLine();
         Console.WriteLine("Options:");
         Console.WriteLine("  --prefix <value>    Optional. Key prefix (section) to load initially");
@@ -456,6 +461,7 @@ internal class Program
         Console.WriteLine("  --endpoint <url>    Optional. App Configuration endpoint for AAD auth");
         Console.WriteLine("  --tenant <guid>     Optional. Entra ID tenant for AAD auth");
         Console.WriteLine("  --auth <mode>       Optional. Auth method: auto|device|browser|cli|vscode (default: auto)");
+        Console.WriteLine("  --version           Print version and exit");
         Console.WriteLine();
         Console.WriteLine("Environment:");
         Console.WriteLine("  APP_CONFIG_CONNECTION_STRING  Azure App Configuration connection string");
@@ -500,6 +506,9 @@ internal class Program
                 case "--auth":
                     if (i + 1 < args.Length) { opts.Auth = args[++i].ToLowerInvariant(); }
                     break;
+                case "--version":
+                    opts.ShowVersion = true;
+                    break;
                 case "-h":
                 case "--help":
                     opts.ShowHelp = true;
@@ -517,6 +526,7 @@ internal class Program
         public string? Endpoint { get; set; }
         public string? TenantId { get; set; }
         public string? Auth { get; set; } // device|browser|cli|vscode|auto
+        public bool ShowVersion { get; set; }
     }
 }
 

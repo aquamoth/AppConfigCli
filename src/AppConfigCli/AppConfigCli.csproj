@@ -12,6 +12,11 @@
     <PackageReference Include="Riok.Mapperly" Version="4.2.0" PrivateAssets="all" />
   </ItemGroup>
   <ItemGroup>
+    <!-- Make NBGV-provided commit properties available to code -->
+    <CompilerVisibleProperty Include="GitCommitId" />
+    <CompilerVisibleProperty Include="GitCommitIdShort" />
+  </ItemGroup>
+  <ItemGroup>
     <ProjectReference Include="../AppConfigCli.Core/AppConfigCli.Core.csproj" />
   </ItemGroup>
 </Project>
