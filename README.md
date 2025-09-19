@@ -1,5 +1,11 @@
 # Codex AppConfig CLI
 
+[![CI](https://github.com/aquamoth/AppConfigCli/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/aquamoth/AppConfigCli/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/aquamoth/AppConfigCli?display_name=tag&sort=semver)](https://github.com/aquamoth/AppConfigCli/releases)
+<!-- Optional: enable Codecov then uncomment
+[![codecov](https://codecov.io/gh/aquamoth/AppConfigCli/branch/main/graph/badge.svg)](https://codecov.io/gh/aquamoth/AppConfigCli)
+-->
+
 Keyboard-first, cross-platform editor for Azure App Configuration sections, built in C# (.NET 9). It lists key/values under a prefix, lets you edit/add/delete using only the keyboard, and saves changes back by merging updates.
 
 ## Requirements
