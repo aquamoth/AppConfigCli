@@ -7,10 +7,10 @@ namespace AppConfigCli.Tests;
 public class VersionInfoTests
 {
     [Fact]
-    public void VersionLine_IncludesCommit()
+    public void VersionLine_IncludesPlusCommit()
     {
         var line = VersionInfo.GetVersionLine();
         Assert.False(string.IsNullOrWhiteSpace(line));
-        Assert.Contains("commit", line, StringComparison.OrdinalIgnoreCase);
+        Assert.Contains("+", line);
     }
 }
