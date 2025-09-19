@@ -77,12 +77,59 @@ internal static class StructuredEditHelper
         try
         {
             var deser = new DeserializerBuilder().WithNamingConvention(NullNamingConvention.Instance).Build();
-            var obj = deser.Deserialize<object>(yaml);
-            if (obj is not Dictionary<string, object> && obj is not List<object?>)
+            var raw = deser.Deserialize<object?>(yaml);
+            if (raw is null)
             {
                 return (false, "Top-level YAML must be an object or array.", 0, 0, 0);
             }
-            var flats = FlatKeyMapper.Flatten(obj!, separator);
+
+            object Normalize(object? n)
+            {
+                switch (n)
+                {
+                    case null:
+                        return string.Empty;
+                    case string s:
+                        return s;
+                    case IDictionary<object, object> dict:
+                    {
+                        var d = new Dictionary<string, object>(StringComparer.Ordinal);
+                        foreach (var kv in dict)
+                        {
+                            var key = kv.Key?.ToString() ?? string.Empty;
+                            d[key] = Normalize(kv.Value);
+                        }
+                        return d;
+                    }
+                    case IEnumerable<object?> list:
+                    {
+                        var l = new List<object?>();
+                        foreach (var el in list)
+                        {
+                            l.Add(Normalize(el));
+                        }
+                        return l;
+                    }
+                    default:
+                        // Also handle untyped IEnumerable (non-generic)
+                        if (n is System.Collections.IEnumerable e && n is not string)
+                        {
+                            var l = new List<object?>();
+                            foreach (var el in e)
+                                l.Add(Normalize(el));
+                            return l;
+                        }
+                        return n.ToString() ?? string.Empty;
+                }
+            }
+
+            var normalized = Normalize(raw);
+            if (normalized is not Dictionary<string, object> && normalized is not List<object?>)
+            {
+                return (false, "Top-level YAML must be an object or array.", 0, 0, 0);
+            }
+
+            var flats = FlatKeyMapper.Flatten(normalized, separator);
             var content = string.Join("\n", flats.Select(kv => kv.Key + "\t" + BulkEditHelper.EscapeValue(kv.Value)));
             var (c, u, d) = BulkEditHelper.ApplyEdits(content, allItems, visibleUnderLabel, prefix, activeLabel);
             return (true, string.Empty, c, u, d);
