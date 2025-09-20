@@ -9,7 +9,7 @@ internal partial record Command
             Aliases = new[] { "json" },
             Summary = "json [sep]",
             Usage = "Usage: json [separator] (default ':')",
-            Description = "Edit visible items as nested JSON split by <sep>",
+            Description = "Edit visible items as nested JSON split by <sep> (default ':')",
             Parser = args =>
             {
                 var sep = args.Length < 1 ? ":" : string.Join(' ', args);

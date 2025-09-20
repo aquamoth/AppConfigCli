@@ -12,7 +12,7 @@ internal partial record Command
             Aliases = new[] { "yaml" },
             Summary = "yaml [sep]",
             Usage = "Usage: yaml [separator] (default ':')",
-            Description = "Edit visible items as nested YAML split by <sep>",
+            Description = "Edit visible items as nested YAML split by <sep> (default ':')",
             Parser = args =>
             {
                 var sep = args.Length < 1 ? ":" : string.Join(' ', args);
