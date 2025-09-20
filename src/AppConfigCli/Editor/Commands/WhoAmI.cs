@@ -12,9 +12,22 @@ internal partial record Command
             Description = "Show current identity and endpoint",
             Parser = args => (true, new WhoAmI(), null)
         };
-        public override Task<CommandResult> ExecuteAsync(EditorApp app)
+
+        public override async Task<CommandResult> ExecuteAsync(EditorApp app)
         {
-            return app.InvokeWhoAmIAsync().ContinueWith(_ => new CommandResult());
+            if (app.WhoAmI is not null)
+            {
+                await app.WhoAmI();
+            }
+            else
+            {
+                Console.WriteLine("whoami not available in this mode.");
+            }
+
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+
+            return new CommandResult();
         }
     }
 }

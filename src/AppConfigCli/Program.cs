@@ -535,27 +535,26 @@ internal class Program
 internal sealed partial class EditorApp
 {
     private readonly AppConfigCli.Core.IConfigRepository _repo;
-    private readonly Func<Task>? _whoAmI;
     private readonly string _authModeDesc;
+    internal readonly Func<Task>? WhoAmI;
 
     internal string? Prefix { get; set; }
     internal string? Label { get; set; }
     internal List<Item> Items { get; } = [];
     internal string? KeyRegexPattern { get; set; }
     internal Regex? KeyRegex { get; set; }
-
-    private readonly IFileSystem _fs;
-    private readonly IExternalEditor _externalEditor;
+    internal IFileSystem Filesystem { get; init; }
+    internal IExternalEditor ExternalEditor { get; init; }
 
     public EditorApp(AppConfigCli.Core.IConfigRepository repo, string? prefix, string? label, Func<Task>? whoAmI = null, string authModeDesc = "", IFileSystem? fs = null, IExternalEditor? externalEditor = null)
     {
         _repo = repo;
         Prefix = prefix;
         Label = label;
-        _whoAmI = whoAmI;
+        WhoAmI = whoAmI;
         _authModeDesc = authModeDesc;
-        _fs = fs ?? new DefaultFileSystem();
-        _externalEditor = externalEditor ?? new DefaultExternalEditor();
+        Filesystem = fs ?? new DefaultFileSystem();
+        ExternalEditor = externalEditor ?? new DefaultExternalEditor();
     }
 
     public async Task LoadAsync()
@@ -600,188 +599,8 @@ internal sealed partial class EditorApp
         }
     }
 
-    // Helper to allow WhoAmI command invocation without exposing internals publicly
-    internal async Task InvokeWhoAmIAsync()
-    {
-        if (_whoAmI is not null) await _whoAmI(); else Console.WriteLine("whoami not available in this mode.");
-        Console.WriteLine("Press Enter to continue...");
-        Console.ReadLine();
-    }
-
-    // Helper to centralize quit confirmation flow used by Quit command
-    internal async Task<bool> TryQuitAsync()
-    {
-        if (HasPendingChanges(out var newCount, out var modCount, out var delCount))
-        {
-            Console.WriteLine($"You have unsaved changes: +{newCount} new, *{modCount} modified, -{delCount} deleted.");
-            Console.WriteLine("Do you want to save before exiting?");
-            Console.WriteLine("  S) Save and quit");
-            Console.WriteLine("  Q) Quit without saving");
-            Console.WriteLine("  C) Cancel");
-            while (true)
-            {
-                Console.Write("> ");
-                var choice = (Console.ReadLine() ?? string.Empty).Trim().ToLowerInvariant();
-                if (choice.Length == 0) continue;
-                var ch = choice[0];
-                if (ch == 'c') return false; // cancel quit
-                if (ch == 's') { await SaveAsync(pause: false); return true; }
-                if (ch == 'q') { return true; }
-                Console.WriteLine("Please enter S, Q, or C.");
-            }
-        }
-        return true;
-    }
-
     private static string MakeKey(string fullKey, string? label)
         => fullKey + "\n" + (label ?? string.Empty);
-
-    internal void Undo(string[] args)
-    {
-        if (args.Length == 0)
-        {
-            Console.WriteLine("Usage: u|undo <n> [m]  (undos rows n..m)");
-            Console.WriteLine("Press Enter to continue...");
-            Console.ReadLine();
-            return;
-        }
-
-        if (args.Length == 1 && string.Equals(args[0], "all", StringComparison.OrdinalIgnoreCase))
-        {
-            UndoAll();
-            return;
-        }
-
-        if (!int.TryParse(args[0], out int start)) { Console.WriteLine("First argument must be an index or 'all'."); Console.ReadLine(); return; }
-        int end = start;
-        if (args.Length >= 2 && int.TryParse(args[1], out int endParsed)) end = endParsed;
-        var actualIndices = MapVisibleRangeToItemIndices(start, end, out var error);
-        if (actualIndices is null) { Console.WriteLine(error); Console.ReadLine(); return; }
-
-        int removedNew = 0, restored = 0, untouched = 0;
-        foreach (var idx in actualIndices.OrderByDescending(i => i))
-        {
-            if (idx < 0 || idx >= Items.Count) { continue; }
-            var item = Items[idx];
-            if (item.IsNew)
-            {
-                Items.RemoveAt(idx);
-                removedNew++;
-            }
-            else if (item.State == ItemState.Deleted)
-            {
-                item.State = ItemState.Unchanged;
-                restored++;
-            }
-            else if (item.State == ItemState.Modified)
-            {
-                item.Value = item.OriginalValue;
-                item.State = ItemState.Unchanged;
-                restored++;
-            }
-            else
-            {
-                untouched++;
-            }
-        }
-
-        Console.WriteLine($"Undo selection: removed {removedNew} new item(s), restored {restored} item(s), untouched {untouched}.");
-        Console.WriteLine("Press Enter to continue...");
-        Console.ReadLine();
-    }
-
-    internal void UndoAll()
-    {
-        int removedNew = 0, restored = 0, untouched = 0;
-        // Iterate descending to safely remove new items
-        for (int idx = Items.Count - 1; idx >= 0; idx--)
-        {
-            var item = Items[idx];
-            if (item.IsNew)
-            {
-                Items.RemoveAt(idx);
-                removedNew++;
-            }
-            else if (item.State == ItemState.Deleted)
-            {
-                item.State = ItemState.Unchanged;
-                restored++;
-            }
-            else if (item.State == ItemState.Modified)
-            {
-                item.Value = item.OriginalValue;
-                item.State = ItemState.Unchanged;
-                restored++;
-            }
-            else
-            {
-                untouched++;
-            }
-        }
-
-        Console.WriteLine($"Undo all: removed {removedNew} new item(s), restored {restored} item(s), untouched {untouched}.");
-        Console.WriteLine("Press Enter to continue...");
-        Console.ReadLine();
-    }
-
-    private bool TryParseIndex(string[] args, out int idx)
-    {
-        idx = -1;
-        if (args.Length == 0 || !int.TryParse(args[0], out var n))
-        {
-            Console.WriteLine("Provide an item number.");
-            return false;
-        }
-        n -= 1;
-        var vis = GetVisibleItems();
-        if (n < 0 || n >= vis.Count)
-        {
-            Console.WriteLine("Invalid item number.");
-            return false;
-        }
-        var target = vis[n];
-        idx = Items.IndexOf(target);
-        return true;
-    }
-
-    internal async Task ChangePrefixAsync(string[] args)
-    {
-        string? newPrefix = null;
-        if (args.Length == 0)
-        {
-            Console.WriteLine("Enter new prefix (empty for all keys):");
-            Console.Write("> ");
-            var input = Console.ReadLine();
-            newPrefix = input is null ? string.Empty : input.Trim();
-        }
-        else
-        {
-            newPrefix = string.Join(' ', args).Trim();
-        }
-
-        if (HasPendingChanges(out var newCount, out var modCount, out var delCount))
-        {
-            Console.WriteLine($"You have unsaved changes: +{newCount} new, *{modCount} modified, -{delCount} deleted.");
-            Console.WriteLine("Change prefix now?");
-            Console.WriteLine("  S) Save and change");
-            Console.WriteLine("  Q) Change without saving (discard)");
-            Console.WriteLine("  C) Cancel");
-            while (true)
-            {
-                Console.Write("> ");
-                var choice = (Console.ReadLine() ?? string.Empty).Trim().ToLowerInvariant();
-                if (choice.Length == 0) continue;
-                var ch = choice[0];
-                if (ch == 'c') return;
-                if (ch == 's') { await SaveAsync(pause: false); break; }
-                if (ch == 'q') { /* discard */ break; }
-                Console.WriteLine("Please enter S, Q, or C.");
-            }
-        }
-
-        Prefix = newPrefix; // can be empty string to mean 'all keys'
-        await LoadAsync();
-    }
 
     internal async Task SaveAsync(bool pause = true)
     {
@@ -847,127 +666,6 @@ internal sealed partial class EditorApp
         }
     }
 
-    internal async Task OpenInEditorAsync()
-    {
-        await Task.CompletedTask;
-        if (Label is null)
-        {
-            Console.WriteLine("Open requires an active label filter. Set one with l|label <value> first.");
-            Console.WriteLine("Press Enter to continue...");
-            Console.ReadLine();
-            return;
-        }
-
-        // Prepare temp file
-        string tmpDir = _fs.GetTempPath();
-        string file = _fs.Combine(tmpDir, $"appconfig-{Guid.NewGuid():N}.txt");
-
-        try
-        {
-            var content = BulkEditHelper.BuildInitialFileContent(GetVisibleItems().Where(i => i.State != ItemState.Deleted), Prefix, Label);
-            _fs.WriteAllText(file, content);
-
-            // Launch editor
-            try
-            {
-                _externalEditor.Open(file);
-            }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Failed to launch editor: {ex.Message}");
-                Console.WriteLine("Press Enter to continue...");
-                Console.ReadLine();
-                return;
-            }
-
-            // Read back and reconcile
-            var lines = _fs.ReadAllLines(file);
-            var fileText = string.Join("\n", lines);
-            var visibleUnderLabel = GetVisibleItems();
-            var (created, updated, deleted) = BulkEditHelper.ApplyEdits(fileText, Items, visibleUnderLabel, Prefix, Label);
-            ConsolidateDuplicates();
-            Items.Sort(CompareItems);
-            Console.WriteLine($"Bulk edit applied for label [{Label ?? "(none)"}]: {created} added, {updated} updated, {deleted} deleted.");
-            Console.WriteLine("Press Enter to continue...");
-            Console.ReadLine();
-        }
-        finally
-        {
-            _fs.Delete(file);
-        }
-    }
-
-    internal async Task OpenJsonInEditorAsync(string[] args)
-    {
-        await Task.CompletedTask;
-        if (Label is null)
-        {
-            Console.WriteLine("json requires an active label filter. Set one with l|label <value> first.");
-            Console.WriteLine("Press Enter to continue...");
-            Console.ReadLine();
-            return;
-        }
-
-        if (args.Length == 0)
-        {
-            Console.WriteLine("Usage: json <separator>   e.g., json :");
-            Console.WriteLine("Press Enter to continue...");
-            Console.ReadLine();
-            return;
-        }
-
-        var sep = string.Join(' ', args);
-        if (string.IsNullOrEmpty(sep))
-        {
-            Console.WriteLine("Separator cannot be empty.");
-            Console.WriteLine("Press Enter to continue...");
-            Console.ReadLine();
-            return;
-        }
-
-        string tmpDir = _fs.GetTempPath();
-        string file = _fs.Combine(tmpDir, $"appconfig-json-{Guid.NewGuid():N}.json");
-
-        try
-        {
-            var json = StructuredEditHelper.BuildJsonContent(GetVisibleItems(), sep);
-            _fs.WriteAllText(file, json);
-
-            // Launch editor
-            try { _externalEditor.Open(file); }
-            catch (Exception ex)
-            {
-                Console.WriteLine($"Failed to launch editor: {ex.Message}");
-                Console.WriteLine("Press Enter to continue...");
-                Console.ReadLine();
-                return;
-            }
-
-            // Apply edits via StructuredEditHelper and return
-            var editedJson = string.Join("\n", _fs.ReadAllLines(file));
-            var (ok, err, cJ, uJ, dJ) = StructuredEditHelper.ApplyJsonEdits(editedJson, sep, Items, GetVisibleItems(), Prefix, Label);
-            if (!ok)
-            {
-                Console.WriteLine($"Invalid JSON: {err}");
-                Console.WriteLine("Press Enter to continue...");
-                Console.ReadLine();
-                return;
-            }
-            ConsolidateDuplicates();
-            Items.Sort(CompareItems);
-            Console.WriteLine($"JSON edit applied for label [{(Label?.Length == 0 ? "(none)" : Label) ?? "(any)"}]: {cJ} added, {uJ} updated, {dJ} deleted.");
-            Console.WriteLine("Press Enter to continue...");
-            Console.ReadLine();
-            return;
-
-
-        }
-        finally
-        {
-            try { if (File.Exists(file)) File.Delete(file); } catch { }
-        }
-    }
-
     internal async Task OpenYamlInEditorAsync(string[] args)
     {
         await Task.CompletedTask;
@@ -996,8 +694,8 @@ internal sealed partial class EditorApp
             return;
         }
 
-        string tmpDir = _fs.GetTempPath();
-        string file = _fs.Combine(tmpDir, $"appconfig-yaml-{Guid.NewGuid():N}.yaml");
+        string tmpDir = Filesystem.GetTempPath();
+        string file = Filesystem.Combine(tmpDir, $"appconfig-yaml-{Guid.NewGuid():N}.yaml");
 
         try
         {
@@ -1143,7 +841,7 @@ internal sealed partial class EditorApp
             File.WriteAllText(file, yaml);
 
             // Launch editor
-            try { _externalEditor.Open(file); }
+            try { ExternalEditor.Open(file); }
             catch (Exception ex)
             {
                 Console.WriteLine($"Failed to launch editor: {ex.Message}");
@@ -1155,7 +853,7 @@ internal sealed partial class EditorApp
 
 
             // Apply edits via StructuredEditHelper and return
-            var editedYaml = string.Join("\n", _fs.ReadAllLines(file));
+            var editedYaml = string.Join("\n", Filesystem.ReadAllLines(file));
             var (ok2, err2, c2, u2, d2) = StructuredEditHelper.ApplyYamlEdits(editedYaml, sep, Items, GetVisibleItems(), Prefix, Label);
             if (!ok2)
             {
@@ -1237,7 +935,7 @@ internal sealed partial class EditorApp
 
     // GetWindowWidth moved to Editor/EditorApp.UI.cs
 
-    private void ConsolidateDuplicates()
+    internal void ConsolidateDuplicates()
     {
         var groups = Items.GroupBy(i => MakeKey(i.FullKey, i.Label)).ToList();
         foreach (var g in groups)

@@ -25,18 +25,12 @@ internal partial record Command
             else if (Empty) args = new[] { "-" };
             else args = new[] { Value ?? string.Empty };
 
-            await ChangeLabelAsync(app, args);
-
-            return new CommandResult();
-        }
-        internal async Task ChangeLabelAsync(EditorApp app, string[] args)
-        {
             if (args.Length == 0)
             {
                 // No argument clears the filter (any label)
                 app.Label = null;
                 await app.LoadAsync();
-                return;
+                return new CommandResult();
             }
 
             var newLabelArg = string.Join(' ', args).Trim();
@@ -51,7 +45,8 @@ internal partial record Command
                 app.Label = newLabelArg;
             }
             await app.LoadAsync();
-        }
 
+            return new CommandResult();
+        }
     }
 }

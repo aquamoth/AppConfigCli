@@ -50,7 +50,7 @@ internal abstract partial record Command
         Help.Spec,
         Open.Spec,
         Prefix.Spec,
-        UndoRange.Spec,
+        Undo.Spec,
         Json.Spec,
         Yaml.Spec,
         WhoAmI.Spec,
