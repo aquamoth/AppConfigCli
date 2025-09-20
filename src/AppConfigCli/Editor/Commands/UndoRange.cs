@@ -1,5 +1,4 @@
 using System.Globalization;
-using System.Threading.Tasks;
 
 namespace AppConfigCli;
 
@@ -26,16 +25,6 @@ internal partial record Command
             var args = Start == End ? new[] { Start.ToString(CultureInfo.InvariantCulture) }
                                      : new[] { Start.ToString(CultureInfo.InvariantCulture), End.ToString(CultureInfo.InvariantCulture) };
             app.Undo(args);
-            return Task.FromResult(new CommandResult());
-        }
-    }
-
-    public sealed record UndoAll() : Command
-    {
-        // No separate Spec; covered by UndoRange.Spec Parser via 'all'
-        public override Task<CommandResult> ExecuteAsync(EditorApp app)
-        {
-            app.UndoAll();
             return Task.FromResult(new CommandResult());
         }
     }

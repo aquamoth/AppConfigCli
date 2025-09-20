@@ -11,9 +11,9 @@ internal sealed partial class EditorApp
     {
         Console.Clear();
         Console.WriteLine("Azure App Configuration Editor");
-        var prefixDisplay = string.IsNullOrWhiteSpace(_prefix) ? "(none)" : _prefix;
-        var labelDisplay = _label is null ? "(any)" : (_label.Length == 0 ? "(none)" : _label);
-        var keyRegexDisplay = string.IsNullOrEmpty(_keyRegexPattern) ? "(none)" : _keyRegexPattern;
+        var prefixDisplay = string.IsNullOrWhiteSpace(Prefix) ? "(none)" : Prefix;
+        var labelDisplay = Label is null ? "(any)" : (Label.Length == 0 ? "(none)" : Label);
+        var keyRegexDisplay = string.IsNullOrEmpty(KeyRegexPattern) ? "(none)" : KeyRegexPattern;
         Console.WriteLine($"Prefix: '{prefixDisplay}'   Label filter: '{labelDisplay}'   Key regex: '{keyRegexDisplay}'   Auth: {_authModeDesc}");
 
         var width = GetWindowWidth();
@@ -59,15 +59,6 @@ internal sealed partial class EditorApp
 
         Console.WriteLine();
         Console.WriteLine(CommandParser.GetSummaryLine());
-    }
-
-    internal void ShowHelp()
-    {
-        Console.WriteLine();
-        Console.WriteLine(CommandParser.GetHelpText());
-        Console.WriteLine();
-        Console.WriteLine("Press Enter to return to the list...");
-        Console.ReadLine();
     }
 
     private static int GetWindowWidth()

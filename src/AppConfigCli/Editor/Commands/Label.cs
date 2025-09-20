@@ -1,5 +1,3 @@
-using System.Threading.Tasks;
-
 namespace AppConfigCli;
 
 internal partial record Command
@@ -19,34 +17,41 @@ internal partial record Command
                 return (true, new Label(string.Join(' ', args), Clear: false, Empty: false), null);
             }
         };
+
         public override async Task<CommandResult> ExecuteAsync(EditorApp app)
         {
             string[] args;
             if (Clear) args = System.Array.Empty<string>();
             else if (Empty) args = new[] { "-" };
             else args = new[] { Value ?? string.Empty };
-            await app.ChangeLabelAsync(args);
+
+            await ChangeLabelAsync(app, args);
+
             return new CommandResult();
         }
-    }
+        internal async Task ChangeLabelAsync(EditorApp app, string[] args)
+        {
+            if (args.Length == 0)
+            {
+                // No argument clears the filter (any label)
+                app.Label = null;
+                await app.LoadAsync();
+                return;
+            }
 
-    public sealed record Grep(string? Pattern, bool Clear) : Command
-    {
-        public static CommandSpec Spec => new CommandSpec
-        {
-            Aliases = new[] { "g", "grep" },
-            Summary = "g|grep [regex]",
-            Usage = "Usage: g|grep [regex]",
-            Description = "Set key regex filter (no arg clears)",
-            Parser = args => args.Length == 0
-                ? (true, new Grep(null, Clear: true), null)
-                : (true, new Grep(string.Join(' ', args), Clear: false), null)
-        };
-        public override Task<CommandResult> ExecuteAsync(EditorApp app)
-        {
-            var args = Clear ? System.Array.Empty<string>() : new[] { Pattern ?? string.Empty };
-            app.SetKeyRegex(args);
-            return Task.FromResult(new CommandResult());
+            var newLabelArg = string.Join(' ', args).Trim();
+            if (newLabelArg == "-")
+            {
+                // Single dash selects the explicitly empty label
+                app.Label = string.Empty;
+            }
+            else
+            {
+                // Any other value is a literal label
+                app.Label = newLabelArg;
+            }
+            await app.LoadAsync();
         }
+
     }
 }
