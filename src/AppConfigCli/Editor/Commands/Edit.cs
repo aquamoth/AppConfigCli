@@ -67,7 +67,7 @@ internal partial record Command
             if (Console.ForegroundColor != prev) Console.ForegroundColor = prev;
         }
 
-        internal static string ReadLineWithInitial(string initial, ConsoleTheme theme)
+        internal static string? ReadLineWithInitial(string initial, ConsoleTheme theme)
         {
             var buffer = new StringBuilder(initial);
             int cursor = buffer.Length; // insertion index in buffer

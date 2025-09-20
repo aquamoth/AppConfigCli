@@ -641,35 +641,86 @@ internal sealed partial class EditorApp
         }
     }
 
-    // Minimal line reader for the command prompt that reacts instantly to Ctrl+C
+    // Command prompt line editor with history, cursor movement, word jumps, delete/backspace, ESC-to-clear, and instant Ctrl+C
     internal static (bool CtrlC, string? Text) ReadLineOrCtrlC(List<string>? history = null)
     {
-        var sb = new StringBuilder();
+        var buffer = new StringBuilder();
+        int cursor = 0; // insertion index in buffer
         int startLeft, startTop;
         try { startLeft = Console.CursorLeft; startTop = Console.CursorTop; }
         catch { startLeft = 0; startTop = 0; }
-        int lastLen = 0;
+        int scrollStart = 0; // index in buffer where the viewport starts
+
+        // History navigation state
         int histIndex = history?.Count ?? 0; // one past the last (bottom slot)
         string draft = string.Empty; // user's in-progress new command at bottom
         bool modifiedFromHistory = false; // set when user edits a recalled history line
 
+        // If there is effectively no room on this line, move to a fresh line
+        try
+        {
+            int initialAvail = Math.Max(0, Console.WindowWidth - startLeft - 1);
+            if (initialAvail < 10)
+            {
+                Console.WriteLine();
+                startLeft = 0;
+                startTop = Console.CursorTop;
+            }
+        }
+        catch { }
+
         void Render()
         {
+            int winWidth;
+            try { winWidth = Console.WindowWidth; }
+            catch { winWidth = 80; }
+
+            int contentWidth = Math.Max(1, winWidth - startLeft - 1);
+
+            // Keep cursor within viewport
+            if (cursor < scrollStart) scrollStart = cursor;
+            if (cursor - scrollStart >= contentWidth) scrollStart = Math.Max(0, cursor - contentWidth + 1);
+
+            int end = Math.Min(buffer.Length, scrollStart + contentWidth);
+            string view = buffer.ToString(scrollStart, end - scrollStart);
+
+            // Show ellipsis if scrolled left/right, but avoid replacing the only visible character
+            // so the user can still see part of the command when space is very tight.
+            int winVisible = Math.Max(1, Math.Min(view.Length, contentWidth));
+            if (winVisible > 1)
+            {
+                if (scrollStart > 0 && view.Length > 0)
+                {
+                    view = '…' + (view.Length > 1 ? view[1..] : string.Empty);
+                }
+                if (end < buffer.Length && view.Length > 0)
+                {
+                    view = (view.Length > 1 ? view[..^1] : string.Empty) + '…';
+                }
+            }
+
+            // Render view padded to the full content width to clear remnants
             try
             {
                 Console.SetCursorPosition(startLeft, startTop);
-                var text = sb.ToString();
-                Console.Write(text);
-                // clear any leftover from previous render
-                if (lastLen > text.Length)
+                int vlen = Math.Min(view.Length, contentWidth);
+                if (vlen > 0) Console.Write(view[..vlen]);
+                if (vlen < contentWidth)
                 {
-                    Console.Write(new string(' ', lastLen - text.Length));
-                    Console.SetCursorPosition(startLeft + text.Length, startTop);
+                    Console.Write(new string(' ', contentWidth - vlen));
                 }
-                lastLen = text.Length;
+                // Place cursor within the view
+                int cursorCol = startLeft + Math.Min(cursor - scrollStart, contentWidth - 1);
+                int safeCol = Math.Min(Math.Max(0, winWidth - 1), Math.Max(0, cursorCol));
+                Console.SetCursorPosition(safeCol, startTop);
             }
             catch { }
         }
+
+        // Initial render
+        Render();
+
+        static bool IsWordChar(char c) => char.IsLetterOrDigit(c);
 
         while (true)
         {
@@ -683,35 +734,41 @@ internal sealed partial class EditorApp
             if (key.Key == ConsoleKey.Enter)
             {
                 Console.WriteLine();
-                return (false, sb.ToString());
+                return (false, buffer.ToString());
             }
-            if (key.Key == ConsoleKey.Backspace)
+            if (key.Key == ConsoleKey.Escape)
             {
-                // If editing a recalled command, switch to bottom buffer and preserve current edits
-                if (histIndex != (history?.Count ?? 0) && !modifiedFromHistory)
+                // Clear the entire line and keep editing (do not issue a command)
+                if (histIndex != (history?.Count ?? 0))
                 {
-                    modifiedFromHistory = true;
-                    draft = sb.ToString();
+                    // move to bottom draft when clearing
                     histIndex = history?.Count ?? 0;
                 }
-                if (sb.Length > 0)
-                {
-                    sb.Length--;
-                    if (histIndex == (history?.Count ?? 0)) draft = sb.ToString();
-                    Render();
-                }
+                buffer.Clear();
+                cursor = 0;
+                scrollStart = 0;
+                draft = string.Empty;
+                modifiedFromHistory = true;
+                Render();
                 continue;
             }
+
+            // History navigation (Up/Down)
             if (key.Key == ConsoleKey.UpArrow && history is not null)
             {
                 if (histIndex > 0)
                 {
-                    // Save current bottom draft before moving up from bottom slot
                     if (histIndex == history.Count)
-                        draft = sb.ToString();
+                        draft = buffer.ToString();
                     histIndex--;
-                    sb.Clear();
-                    sb.Append(history[histIndex]);
+                    buffer.Clear();
+                    buffer.Append(history[histIndex]);
+                    cursor = buffer.Length;
+                    // Position viewport to show as much of the tail as fits
+                    int winWidth; try { winWidth = Console.WindowWidth; } catch { winWidth = 80; }
+                    int contentWidth = Math.Max(1, winWidth - startLeft - 1);
+                    scrollStart = Math.Max(0, cursor - contentWidth + 1);
+                    modifiedFromHistory = false;
                     Render();
                 }
                 continue;
@@ -721,32 +778,157 @@ internal sealed partial class EditorApp
                 if (histIndex < history.Count)
                 {
                     histIndex++;
-                    sb.Clear();
+                    buffer.Clear();
                     if (histIndex == history.Count)
                     {
-                        // Restore bottom draft when returning to bottom slot
-                        sb.Append(draft);
+                        buffer.Append(draft);
                     }
                     else
                     {
-                        sb.Append(history[histIndex]);
+                        buffer.Append(history[histIndex]);
                     }
+                    cursor = buffer.Length;
+                    // Position viewport to show as much of the tail as fits
+                    int winWidth; try { winWidth = Console.WindowWidth; } catch { winWidth = 80; }
+                    int contentWidth = Math.Max(1, winWidth - startLeft - 1);
+                    scrollStart = Math.Max(0, cursor - contentWidth + 1);
+                    modifiedFromHistory = false;
                     Render();
                 }
                 continue;
             }
-            if (!char.IsControl(key.KeyChar))
+
+            // Editing a recalled history entry -> transition to bottom draft on first modification
+            void EnsureDraft()
             {
-                // If editing a recalled command, switch to bottom buffer and preserve current edits
                 if (histIndex != (history?.Count ?? 0) && !modifiedFromHistory)
                 {
                     modifiedFromHistory = true;
-                    draft = sb.ToString();
+                    draft = buffer.ToString();
                     histIndex = history?.Count ?? 0;
                 }
-                sb.Append(key.KeyChar);
-                if (histIndex == (history?.Count ?? 0)) draft = sb.ToString();
+            }
+
+            // Word-wise navigation/deletion with Ctrl or Alt
+            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.LeftArrow)
+            {
+                if (cursor > 0)
+                {
+                    int i = cursor - 1;
+                    while (i >= 0 && !IsWordChar(i < buffer.Length ? buffer[i] : ' ')) i--;
+                    while (i >= 0 && IsWordChar(buffer[i])) i--;
+                    cursor = Math.Max(0, i + 1);
+                    Render();
+                }
+                continue;
+            }
+            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.RightArrow)
+            {
+                if (cursor < buffer.Length)
+                {
+                    int i = cursor;
+                    while (i < buffer.Length && !IsWordChar(buffer[i])) i++;
+                    while (i < buffer.Length && IsWordChar(buffer[i])) i++;
+                    cursor = i;
+                    Render();
+                }
+                continue;
+            }
+            if (((key.Modifiers & ConsoleModifiers.Control) != 0 || (key.Modifiers & ConsoleModifiers.Alt) != 0) && key.Key == ConsoleKey.Backspace)
+            {
+                EnsureDraft();
+                if (cursor > 0)
+                {
+                    int start = cursor - 1, i = start;
+                    while (i >= 0 && !IsWordChar(buffer[i])) i--;
+                    while (i >= 0 && IsWordChar(buffer[i])) i--;
+                    int delFrom = Math.Max(0, i + 1);
+                    int delLen = cursor - delFrom;
+                    if (delLen > 0)
+                    {
+                        buffer.Remove(delFrom, delLen);
+                        cursor = delFrom;
+                        if (histIndex == (history?.Count ?? 0)) draft = buffer.ToString();
+                        Render();
+                    }
+                }
+                continue;
+            }
+            if (((key.Modifiers & ConsoleModifiers.Control) != 0 || (key.Modifiers & ConsoleModifiers.Alt) != 0) && key.Key == ConsoleKey.Delete)
+            {
+                EnsureDraft();
+                if (cursor < buffer.Length)
+                {
+                    int i = cursor;
+                    while (i < buffer.Length && !IsWordChar(buffer[i])) i++;
+                    while (i < buffer.Length && IsWordChar(buffer[i])) i++;
+                    int delLen = Math.Max(0, i - cursor);
+                    if (delLen > 0)
+                    {
+                        buffer.Remove(cursor, delLen);
+                        if (histIndex == (history?.Count ?? 0)) draft = buffer.ToString();
+                        Render();
+                    }
+                }
+                continue;
+            }
+
+            // Basic navigation
+            if (key.Key == ConsoleKey.LeftArrow)
+            {
+                if (cursor > 0) { cursor--; Render(); }
+                continue;
+            }
+            if (key.Key == ConsoleKey.RightArrow)
+            {
+                if (cursor < buffer.Length) { cursor++; Render(); }
+                continue;
+            }
+            if (key.Key == ConsoleKey.Home)
+            {
+                cursor = 0; Render();
+                continue;
+            }
+            if (key.Key == ConsoleKey.End)
+            {
+                cursor = buffer.Length; Render();
+                continue;
+            }
+
+            // Deletions
+            if (key.Key == ConsoleKey.Backspace)
+            {
+                EnsureDraft();
+                if (cursor > 0)
+                {
+                    buffer.Remove(cursor - 1, 1);
+                    cursor--;
+                    if (histIndex == (history?.Count ?? 0)) draft = buffer.ToString();
+                    Render();
+                }
+                continue;
+            }
+            if (key.Key == ConsoleKey.Delete)
+            {
+                EnsureDraft();
+                if (cursor < buffer.Length)
+                {
+                    buffer.Remove(cursor, 1);
+                    if (histIndex == (history?.Count ?? 0)) draft = buffer.ToString();
+                    Render();
+                }
+                continue;
+            }
+
+            // Insert characters
+            if (!char.IsControl(key.KeyChar))
+            {
+                EnsureDraft();
+                buffer.Insert(cursor, key.KeyChar);
+                cursor++;
+                if (histIndex == (history?.Count ?? 0)) draft = buffer.ToString();
                 Render();
+                continue;
             }
         }
     }
