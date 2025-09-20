@@ -559,6 +559,7 @@ internal sealed partial class EditorApp
     internal IFileSystem Filesystem { get; init; }
     internal IExternalEditor ExternalEditor { get; init; }
     internal ConsoleTheme Theme { get; init; }
+    internal List<string> CommandHistory { get; } = new List<string>();
 
     public EditorApp(AppConfigCli.Core.IConfigRepository repo, string? prefix, string? label, Func<Task>? whoAmI = null, string authModeDesc = "", IFileSystem? fs = null, IExternalEditor? externalEditor = null, ConsoleTheme? theme = null)
     {
@@ -601,7 +602,7 @@ internal sealed partial class EditorApp
             {
                 Render();
                 Console.Write("> ");
-                var (ctrlC, input) = ReadLineOrCtrlC();
+                var (ctrlC, input) = ReadLineOrCtrlC(CommandHistory);
                 if (ctrlC)
                 {
                     var quit = new Command.Quit();
@@ -622,6 +623,15 @@ internal sealed partial class EditorApp
                     continue;
                 }
                 var result = await cmd.ExecuteAsync(this);
+                // Add executed command to history unless it is a duplicate of the last entry
+                if (!string.IsNullOrWhiteSpace(input))
+                {
+                    var last = CommandHistory.Count > 0 ? CommandHistory[^1] : null;
+                    if (!string.Equals(last, input, StringComparison.Ordinal))
+                    {
+                        CommandHistory.Add(input);
+                    }
+                }
                 if (result.ShouldExit) return;
             }
         }
@@ -632,9 +642,33 @@ internal sealed partial class EditorApp
     }
 
     // Minimal line reader for the command prompt that reacts instantly to Ctrl+C
-    internal static (bool CtrlC, string? Text) ReadLineOrCtrlC()
+    internal static (bool CtrlC, string? Text) ReadLineOrCtrlC(List<string>? history = null)
     {
         var sb = new StringBuilder();
+        int startLeft, startTop;
+        try { startLeft = Console.CursorLeft; startTop = Console.CursorTop; }
+        catch { startLeft = 0; startTop = 0; }
+        int lastLen = 0;
+        int histIndex = history?.Count ?? 0; // one past the last (blank)
+
+        void Render()
+        {
+            try
+            {
+                Console.SetCursorPosition(startLeft, startTop);
+                var text = sb.ToString();
+                Console.Write(text);
+                // clear any leftover from previous render
+                if (lastLen > text.Length)
+                {
+                    Console.Write(new string(' ', lastLen - text.Length));
+                    Console.SetCursorPosition(startLeft + text.Length, startTop);
+                }
+                lastLen = text.Length;
+            }
+            catch { }
+        }
+
         while (true)
         {
             var key = Console.ReadKey(intercept: true);
@@ -651,17 +685,36 @@ internal sealed partial class EditorApp
             }
             if (key.Key == ConsoleKey.Backspace)
             {
-                if (sb.Length > 0)
+                if (sb.Length > 0) { sb.Length--; Render(); }
+                continue;
+            }
+            if (key.Key == ConsoleKey.UpArrow && history is not null)
+            {
+                if (histIndex > 0)
                 {
-                    sb.Length--;
-                    Console.Write("\b \b");
+                    histIndex--;
+                    sb.Clear();
+                    sb.Append(history[histIndex]);
+                    Render();
+                }
+                continue;
+            }
+            if (key.Key == ConsoleKey.DownArrow && history is not null)
+            {
+                if (histIndex < history.Count)
+                {
+                    histIndex++;
+                    sb.Clear();
+                    if (histIndex == history.Count) { /* blank */ }
+                    else sb.Append(history[histIndex]);
+                    Render();
                 }
                 continue;
             }
             if (!char.IsControl(key.KeyChar))
             {
                 sb.Append(key.KeyChar);
-                Console.Write(key.KeyChar);
+                Render();
             }
         }
     }
