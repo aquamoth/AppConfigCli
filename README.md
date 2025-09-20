@@ -97,6 +97,8 @@ Editor commands (no mouse required):
    - `-`: explicitly empty label
    - Any other value: literal label
 - `q`: Quit (warns on unsaved changes)
+ - `q`: Quit (warns on unsaved changes)
+ - Pressing `Ctrl+C` invokes the same quit flow (you can Save/Discard/Cancel instead of exiting immediately)
 - `h`: Help
 - `w`: WhoAmI (prints current identity and endpoint)
 

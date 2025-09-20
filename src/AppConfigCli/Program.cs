@@ -537,6 +537,7 @@ internal sealed partial class EditorApp
     private readonly AppConfigCli.Core.IConfigRepository _repo;
     private readonly string _authModeDesc;
     internal readonly Func<Task>? WhoAmI;
+    
 
     internal string? Prefix { get; set; }
     internal string? Label { get; set; }
@@ -578,24 +579,76 @@ internal sealed partial class EditorApp
 
     public async Task RunAsync()
     {
+        var prevTreatCtrlC = Console.TreatControlCAsInput;
+        Console.TreatControlCAsInput = true;
+        try
+        {
+            while (true)
+            {
+                Render();
+                Console.Write("> ");
+                var (ctrlC, input) = ReadLineOrCtrlC();
+                if (ctrlC)
+                {
+                    var quit = new Command.Quit();
+                    var shouldExit = await quit.TryQuitAsync(this);
+                    if (shouldExit) return;
+                    // back to main screen
+                    continue;
+                }
+                if (input is null) continue;
+                if (!CommandParser.TryParse(input, out var cmd, out var err) || cmd is null)
+                {
+                    if (!string.IsNullOrEmpty(err))
+                    {
+                        Console.WriteLine(err);
+                        Console.WriteLine("Press Enter to continue...");
+                        Console.ReadLine();
+                    }
+                    continue;
+                }
+                var result = await cmd.ExecuteAsync(this);
+                if (result.ShouldExit) return;
+            }
+        }
+        finally
+        {
+            Console.TreatControlCAsInput = prevTreatCtrlC;
+        }
+    }
+
+    // Minimal line reader for the command prompt that reacts instantly to Ctrl+C
+    internal static (bool CtrlC, string? Text) ReadLineOrCtrlC()
+    {
+        var sb = new StringBuilder();
         while (true)
         {
-            Render();
-            Console.Write("> ");
-            var input = Console.ReadLine();
-            if (input is null) continue;
-            if (!CommandParser.TryParse(input, out var cmd, out var err) || cmd is null)
+            var key = Console.ReadKey(intercept: true);
+            // Ctrl+C pressed -> signal to caller
+            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.C)
             {
-                if (!string.IsNullOrEmpty(err))
+                Console.WriteLine();
+                return (true, null);
+            }
+            if (key.Key == ConsoleKey.Enter)
+            {
+                Console.WriteLine();
+                return (false, sb.ToString());
+            }
+            if (key.Key == ConsoleKey.Backspace)
+            {
+                if (sb.Length > 0)
                 {
-                    Console.WriteLine(err);
-                    Console.WriteLine("Press Enter to continue...");
-                    Console.ReadLine();
+                    sb.Length--;
+                    Console.Write("\b \b");
                 }
                 continue;
             }
-            var result = await cmd.ExecuteAsync(this);
-            if (result.ShouldExit) return;
+            if (!char.IsControl(key.KeyChar))
+            {
+                sb.Append(key.KeyChar);
+                Console.Write(key.KeyChar);
+            }
         }
     }
 
