@@ -81,6 +81,8 @@ make run prefix=app:settings: label=dev
 - `--endpoint <url>`: Optional. Azure App Configuration endpoint (used for AAD auth).
 - `--tenant <guid>`: Optional. Entra ID tenant ID to sign into (AAD auth).
 - `--auth <mode>`: Optional. Auth method: `auto` (default), `device`, `browser`, `cli`, or `vscode`.
+- `--theme <name>`: Optional. Theme preset for colors: `default`, `mono`, `no-color`, `solarized`.
+- `--no-color`: Optional. Disable color output (overrides theme).
 
 Editor commands (no mouse required):
 
@@ -97,6 +99,8 @@ Editor commands (no mouse required):
    - `-`: explicitly empty label
    - Any other value: literal label
 - `q`: Quit (warns on unsaved changes)
+ - `q`: Quit (warns on unsaved changes)
+ - Pressing `Ctrl+C` invokes the same quit flow (you can Save/Discard/Cancel instead of exiting immediately)
 - `h`: Help
 - `w`: WhoAmI (prints current identity and endpoint)
 
@@ -113,3 +117,14 @@ Legend: `*` modified, `+` new, `-` delete pending, ` ` unchanged
 - If `APP_CONFIG_CONNECTION_STRING` is not set, falls back to Azure AD auth against `APP_CONFIG_ENDPOINT` using chained credentials (Interactive Browser → Device Code → Azure CLI → VS Code).
 - Azure RBAC is required for AAD auth: grant your user/service principal "App Configuration Data Reader" or "App Configuration Data Owner" on the App Configuration resource.
 - Save performs upsert for new/changed keys and delete for deletions; other keys under the same prefix are untouched.
+
+### Environment
+- `APP_CONFIG_CONNECTION_STRING`: Azure App Configuration connection string
+- `APP_CONFIG_ENDPOINT`: Endpoint for AAD auth
+- `AZURE_TENANT_ID`: Entra ID tenant for AAD auth
+- `APP_CONFIG_THEME`: Theme preset name (same as `--theme`).
+- `APP_CONFIG_NO_COLOR`: `1`/`true` to disable color (same as `--no-color`).
+- `APP_CONFIG_COLOR_CONTROL`: ConsoleColor name for control chars (default: Yellow)
+- `APP_CONFIG_COLOR_NUMBER`: ConsoleColor name for digits (default: Cyan)
+- `APP_CONFIG_COLOR_DEFAULT`: ConsoleColor name for default text (fallback: current Console.ForegroundColor)
+- `APP_CONFIG_COLOR_LETTERS`: ConsoleColor name for letters in keys/values (default: Yellow)

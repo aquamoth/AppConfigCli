@@ -80,7 +80,9 @@ internal class Program
         }
 
         var repo = new AzureAppConfigRepository(client);
-        var app = new EditorApp(repo, options.Prefix, options.Label, whoAmIAction, authModeDesc);
+        // If no theme is specified, force the built-in 'default' preset
+        var theme = ConsoleTheme.Load(options.Theme ?? "default", options.NoColor);
+        var app = new EditorApp(repo, options.Prefix, options.Label, whoAmIAction, authModeDesc, theme: theme);
         try
         {
             // Helpers to construct nested structure with objects/arrays
@@ -453,7 +455,7 @@ internal class Program
     {
         Console.WriteLine("Azure App Configuration Section Editor");
         Console.WriteLine();
-        Console.WriteLine("Usage: appconfig [--prefix <keyPrefix>] [--label <label>] [--endpoint <url>] [--tenant <guid>] [--auth <mode>] [--version]");
+        Console.WriteLine("Usage: appconfig [--prefix <keyPrefix>] [--label <label>] [--endpoint <url>] [--tenant <guid>] [--auth <mode>] [--theme <name>] [--no-color] [--version]");
         Console.WriteLine();
         Console.WriteLine("Options:");
         Console.WriteLine("  --prefix <value>    Optional. Key prefix (section) to load initially");
@@ -461,6 +463,8 @@ internal class Program
         Console.WriteLine("  --endpoint <url>    Optional. App Configuration endpoint for AAD auth");
         Console.WriteLine("  --tenant <guid>     Optional. Entra ID tenant for AAD auth");
         Console.WriteLine("  --auth <mode>       Optional. Auth method: auto|device|browser|cli|vscode (default: auto)");
+        Console.WriteLine("  --theme <name>      Optional. Theme preset: default|mono|no-color|solarized");
+        Console.WriteLine("  --no-color          Optional. Disable color output (overrides theme)");
         Console.WriteLine("  --version           Print version and exit");
         Console.WriteLine();
         Console.WriteLine("Environment:");
@@ -506,6 +510,12 @@ internal class Program
                 case "--auth":
                     if (i + 1 < args.Length) { opts.Auth = args[++i].ToLowerInvariant(); }
                     break;
+                case "--theme":
+                    if (i + 1 < args.Length) { opts.Theme = args[++i]; }
+                    break;
+                case "--no-color":
+                    opts.NoColor = true;
+                    break;
                 case "--version":
                     opts.ShowVersion = true;
                     break;
@@ -527,6 +537,8 @@ internal class Program
         public string? TenantId { get; set; }
         public string? Auth { get; set; } // device|browser|cli|vscode|auto
         public bool ShowVersion { get; set; }
+        public string? Theme { get; set; }
+        public bool NoColor { get; set; }
     }
 }
 
@@ -537,6 +549,7 @@ internal sealed partial class EditorApp
     private readonly AppConfigCli.Core.IConfigRepository _repo;
     private readonly string _authModeDesc;
     internal readonly Func<Task>? WhoAmI;
+    
 
     internal string? Prefix { get; set; }
     internal string? Label { get; set; }
@@ -545,8 +558,10 @@ internal sealed partial class EditorApp
     internal Regex? KeyRegex { get; set; }
     internal IFileSystem Filesystem { get; init; }
     internal IExternalEditor ExternalEditor { get; init; }
+    internal ConsoleTheme Theme { get; init; }
+    internal List<string> CommandHistory { get; } = new List<string>();
 
-    public EditorApp(AppConfigCli.Core.IConfigRepository repo, string? prefix, string? label, Func<Task>? whoAmI = null, string authModeDesc = "", IFileSystem? fs = null, IExternalEditor? externalEditor = null)
+    public EditorApp(AppConfigCli.Core.IConfigRepository repo, string? prefix, string? label, Func<Task>? whoAmI = null, string authModeDesc = "", IFileSystem? fs = null, IExternalEditor? externalEditor = null, ConsoleTheme? theme = null)
     {
         _repo = repo;
         Prefix = prefix;
@@ -555,6 +570,7 @@ internal sealed partial class EditorApp
         _authModeDesc = authModeDesc;
         Filesystem = fs ?? new DefaultFileSystem();
         ExternalEditor = externalEditor ?? new DefaultExternalEditor();
+        Theme = theme ?? ConsoleTheme.Load();
     }
 
     public async Task LoadAsync()
@@ -578,24 +594,342 @@ internal sealed partial class EditorApp
 
     public async Task RunAsync()
     {
+        var prevTreatCtrlC = Console.TreatControlCAsInput;
+        Console.TreatControlCAsInput = true;
+        try
+        {
+            while (true)
+            {
+                Render();
+                Console.Write("> ");
+                var (ctrlC, input) = ReadLineOrCtrlC(CommandHistory);
+                if (ctrlC)
+                {
+                    var quit = new Command.Quit();
+                    var shouldExit = await quit.TryQuitAsync(this);
+                    if (shouldExit) return;
+                    // back to main screen
+                    continue;
+                }
+                if (input is null) continue;
+                if (!CommandParser.TryParse(input, out var cmd, out var err) || cmd is null)
+                {
+                    if (!string.IsNullOrEmpty(err))
+                    {
+                        Console.WriteLine(err);
+                        Console.WriteLine("Press Enter to continue...");
+                        Console.ReadLine();
+                    }
+                    continue;
+                }
+                var result = await cmd.ExecuteAsync(this);
+                // Add executed command to history unless it is a duplicate of the last entry
+                if (!string.IsNullOrWhiteSpace(input))
+                {
+                    var last = CommandHistory.Count > 0 ? CommandHistory[^1] : null;
+                    if (!string.Equals(last, input, StringComparison.Ordinal))
+                    {
+                        CommandHistory.Add(input);
+                    }
+                }
+                if (result.ShouldExit) return;
+            }
+        }
+        finally
+        {
+            Console.TreatControlCAsInput = prevTreatCtrlC;
+        }
+    }
+
+    // Command prompt line editor with history, cursor movement, word jumps, delete/backspace, ESC-to-clear, and instant Ctrl+C
+    internal static (bool CtrlC, string? Text) ReadLineOrCtrlC(List<string>? history = null)
+    {
+        var buffer = new StringBuilder();
+        int cursor = 0; // insertion index in buffer
+        int startLeft, startTop;
+        try { startLeft = Console.CursorLeft; startTop = Console.CursorTop; }
+        catch { startLeft = 0; startTop = 0; }
+        int scrollStart = 0; // index in buffer where the viewport starts
+
+        // History navigation state
+        int histIndex = history?.Count ?? 0; // one past the last (bottom slot)
+        string draft = string.Empty; // user's in-progress new command at bottom
+        bool modifiedFromHistory = false; // set when user edits a recalled history line
+
+        // If there is effectively no room on this line, move to a fresh line
+        try
+        {
+            int initialAvail = Math.Max(0, Console.WindowWidth - startLeft - 1);
+            if (initialAvail < 10)
+            {
+                Console.WriteLine();
+                startLeft = 0;
+                startTop = Console.CursorTop;
+            }
+        }
+        catch { }
+
+        void Render()
+        {
+            int winWidth;
+            try { winWidth = Console.WindowWidth; }
+            catch { winWidth = 80; }
+
+            int contentWidth = Math.Max(1, winWidth - startLeft - 1);
+
+            // Keep cursor within viewport
+            if (cursor < scrollStart) scrollStart = cursor;
+            if (cursor - scrollStart >= contentWidth) scrollStart = Math.Max(0, cursor - contentWidth + 1);
+
+            int end = Math.Min(buffer.Length, scrollStart + contentWidth);
+            string view = buffer.ToString(scrollStart, end - scrollStart);
+
+            // Show ellipsis if scrolled left/right, but avoid replacing the only visible character
+            // so the user can still see part of the command when space is very tight.
+            int winVisible = Math.Max(1, Math.Min(view.Length, contentWidth));
+            if (winVisible > 1)
+            {
+                if (scrollStart > 0 && view.Length > 0)
+                {
+                    view = '…' + (view.Length > 1 ? view[1..] : string.Empty);
+                }
+                if (end < buffer.Length && view.Length > 0)
+                {
+                    view = (view.Length > 1 ? view[..^1] : string.Empty) + '…';
+                }
+            }
+
+            // Render view padded to the full content width to clear remnants
+            try
+            {
+                Console.SetCursorPosition(startLeft, startTop);
+                int vlen = Math.Min(view.Length, contentWidth);
+                if (vlen > 0) Console.Write(view[..vlen]);
+                if (vlen < contentWidth)
+                {
+                    Console.Write(new string(' ', contentWidth - vlen));
+                }
+                // Place cursor within the view
+                int cursorCol = startLeft + Math.Min(cursor - scrollStart, contentWidth - 1);
+                int safeCol = Math.Min(Math.Max(0, winWidth - 1), Math.Max(0, cursorCol));
+                Console.SetCursorPosition(safeCol, startTop);
+            }
+            catch { }
+        }
+
+        // Initial render
+        Render();
+
+        static bool IsWordChar(char c) => char.IsLetterOrDigit(c);
+
         while (true)
         {
-            Render();
-            Console.Write("> ");
-            var input = Console.ReadLine();
-            if (input is null) continue;
-            if (!CommandParser.TryParse(input, out var cmd, out var err) || cmd is null)
+            var key = Console.ReadKey(intercept: true);
+            // Ctrl+C pressed -> signal to caller
+            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.C)
             {
-                if (!string.IsNullOrEmpty(err))
+                Console.WriteLine();
+                return (true, null);
+            }
+            if (key.Key == ConsoleKey.Enter)
+            {
+                Console.WriteLine();
+                return (false, buffer.ToString());
+            }
+            if (key.Key == ConsoleKey.Escape)
+            {
+                // Clear the entire line and keep editing (do not issue a command)
+                if (histIndex != (history?.Count ?? 0))
                 {
-                    Console.WriteLine(err);
-                    Console.WriteLine("Press Enter to continue...");
-                    Console.ReadLine();
+                    // move to bottom draft when clearing
+                    histIndex = history?.Count ?? 0;
+                }
+                buffer.Clear();
+                cursor = 0;
+                scrollStart = 0;
+                draft = string.Empty;
+                modifiedFromHistory = true;
+                Render();
+                continue;
+            }
+
+            // History navigation (Up/Down)
+            if (key.Key == ConsoleKey.UpArrow && history is not null)
+            {
+                if (histIndex > 0)
+                {
+                    if (histIndex == history.Count)
+                        draft = buffer.ToString();
+                    histIndex--;
+                    buffer.Clear();
+                    buffer.Append(history[histIndex]);
+                    cursor = buffer.Length;
+                    // Position viewport to show as much of the tail as fits
+                    int winWidth; try { winWidth = Console.WindowWidth; } catch { winWidth = 80; }
+                    int contentWidth = Math.Max(1, winWidth - startLeft - 1);
+                    scrollStart = Math.Max(0, cursor - contentWidth + 1);
+                    modifiedFromHistory = false;
+                    Render();
                 }
                 continue;
             }
-            var result = await cmd.ExecuteAsync(this);
-            if (result.ShouldExit) return;
+            if (key.Key == ConsoleKey.DownArrow && history is not null)
+            {
+                if (histIndex < history.Count)
+                {
+                    histIndex++;
+                    buffer.Clear();
+                    if (histIndex == history.Count)
+                    {
+                        buffer.Append(draft);
+                    }
+                    else
+                    {
+                        buffer.Append(history[histIndex]);
+                    }
+                    cursor = buffer.Length;
+                    // Position viewport to show as much of the tail as fits
+                    int winWidth; try { winWidth = Console.WindowWidth; } catch { winWidth = 80; }
+                    int contentWidth = Math.Max(1, winWidth - startLeft - 1);
+                    scrollStart = Math.Max(0, cursor - contentWidth + 1);
+                    modifiedFromHistory = false;
+                    Render();
+                }
+                continue;
+            }
+
+            // Editing a recalled history entry -> transition to bottom draft on first modification
+            void EnsureDraft()
+            {
+                if (histIndex != (history?.Count ?? 0) && !modifiedFromHistory)
+                {
+                    modifiedFromHistory = true;
+                    draft = buffer.ToString();
+                    histIndex = history?.Count ?? 0;
+                }
+            }
+
+            // Word-wise navigation/deletion with Ctrl or Alt
+            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.LeftArrow)
+            {
+                if (cursor > 0)
+                {
+                    int i = cursor - 1;
+                    while (i >= 0 && !IsWordChar(i < buffer.Length ? buffer[i] : ' ')) i--;
+                    while (i >= 0 && IsWordChar(buffer[i])) i--;
+                    cursor = Math.Max(0, i + 1);
+                    Render();
+                }
+                continue;
+            }
+            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.RightArrow)
+            {
+                if (cursor < buffer.Length)
+                {
+                    int i = cursor;
+                    while (i < buffer.Length && !IsWordChar(buffer[i])) i++;
+                    while (i < buffer.Length && IsWordChar(buffer[i])) i++;
+                    cursor = i;
+                    Render();
+                }
+                continue;
+            }
+            if (((key.Modifiers & ConsoleModifiers.Control) != 0 || (key.Modifiers & ConsoleModifiers.Alt) != 0) && key.Key == ConsoleKey.Backspace)
+            {
+                EnsureDraft();
+                if (cursor > 0)
+                {
+                    int start = cursor - 1, i = start;
+                    while (i >= 0 && !IsWordChar(buffer[i])) i--;
+                    while (i >= 0 && IsWordChar(buffer[i])) i--;
+                    int delFrom = Math.Max(0, i + 1);
+                    int delLen = cursor - delFrom;
+                    if (delLen > 0)
+                    {
+                        buffer.Remove(delFrom, delLen);
+                        cursor = delFrom;
+                        if (histIndex == (history?.Count ?? 0)) draft = buffer.ToString();
+                        Render();
+                    }
+                }
+                continue;
+            }
+            if (((key.Modifiers & ConsoleModifiers.Control) != 0 || (key.Modifiers & ConsoleModifiers.Alt) != 0) && key.Key == ConsoleKey.Delete)
+            {
+                EnsureDraft();
+                if (cursor < buffer.Length)
+                {
+                    int i = cursor;
+                    while (i < buffer.Length && !IsWordChar(buffer[i])) i++;
+                    while (i < buffer.Length && IsWordChar(buffer[i])) i++;
+                    int delLen = Math.Max(0, i - cursor);
+                    if (delLen > 0)
+                    {
+                        buffer.Remove(cursor, delLen);
+                        if (histIndex == (history?.Count ?? 0)) draft = buffer.ToString();
+                        Render();
+                    }
+                }
+                continue;
+            }
+
+            // Basic navigation
+            if (key.Key == ConsoleKey.LeftArrow)
+            {
+                if (cursor > 0) { cursor--; Render(); }
+                continue;
+            }
+            if (key.Key == ConsoleKey.RightArrow)
+            {
+                if (cursor < buffer.Length) { cursor++; Render(); }
+                continue;
+            }
+            if (key.Key == ConsoleKey.Home)
+            {
+                cursor = 0; Render();
+                continue;
+            }
+            if (key.Key == ConsoleKey.End)
+            {
+                cursor = buffer.Length; Render();
+                continue;
+            }
+
+            // Deletions
+            if (key.Key == ConsoleKey.Backspace)
+            {
+                EnsureDraft();
+                if (cursor > 0)
+                {
+                    buffer.Remove(cursor - 1, 1);
+                    cursor--;
+                    if (histIndex == (history?.Count ?? 0)) draft = buffer.ToString();
+                    Render();
+                }
+                continue;
+            }
+            if (key.Key == ConsoleKey.Delete)
+            {
+                EnsureDraft();
+                if (cursor < buffer.Length)
+                {
+                    buffer.Remove(cursor, 1);
+                    if (histIndex == (history?.Count ?? 0)) draft = buffer.ToString();
+                    Render();
+                }
+                continue;
+            }
+
+            // Insert characters
+            if (!char.IsControl(key.KeyChar))
+            {
+                EnsureDraft();
+                buffer.Insert(cursor, key.KeyChar);
+                cursor++;
+                if (histIndex == (history?.Count ?? 0)) draft = buffer.ToString();
+                Render();
+                continue;
+            }
         }
     }
 

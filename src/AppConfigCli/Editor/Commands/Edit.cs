@@ -24,13 +24,25 @@ internal partial record Command
 
         public override Task<CommandResult> ExecuteAsync(EditorApp app)
         {
-            var idx = Index;
+            // Map 1-based visible index to actual item index
+            var indices = app.MapVisibleRangeToItemIndices(Index, Index, out var error);
+            if (indices is null || indices.Count != 1)
+            {
+                Console.WriteLine(string.IsNullOrEmpty(error) ? "Invalid index." : error);
+                Console.WriteLine("Press Enter to continue...");
+                Console.ReadLine();
+                return Task.FromResult(new CommandResult());
+            }
+            var idx = indices[0];
             var item = app.Items[idx];
             var label = item.Label ?? "(none)";
-            Console.WriteLine($"Editing '{item.ShortKey}' [{label}]  (Enter to save)");
+            // Colorized header: key colored, label plain
+            Console.Write("Editing '");
+            WriteColoredInline(item.ShortKey, app.Theme);
+            Console.Write("' [" + label + "]  (Enter to save)\n");
             Console.Write("> ");
 
-            var newVal = ReadLineWithInitial(item.Value ?? string.Empty);
+            var newVal = ReadLineWithInitial(item.Value ?? string.Empty, app.Theme);
             if (newVal is not null)
             {
                 item.Value = newVal;
@@ -43,7 +55,19 @@ internal partial record Command
             return Task.FromResult(new CommandResult());
         }
 
-        internal static string ReadLineWithInitial(string initial)
+        private static void WriteColoredInline(string text, ConsoleTheme theme)
+        {
+            var prev = Console.ForegroundColor;
+            foreach (var ch in text)
+            {
+                var color = EditorApp.ClassifyColorFor(theme, ch);
+                if (Console.ForegroundColor != color) Console.ForegroundColor = color;
+                Console.Write(ch);
+            }
+            if (Console.ForegroundColor != prev) Console.ForegroundColor = prev;
+        }
+
+        internal static string? ReadLineWithInitial(string initial, ConsoleTheme theme)
         {
             var buffer = new StringBuilder(initial);
             int cursor = buffer.Length; // insertion index in buffer
@@ -85,9 +109,23 @@ internal partial record Command
                     view = (view.Length > 1 ? view[..^1] : string.Empty) + '…';
                 }
 
-                // Render view padded to the full content width to clear remnants
+                // Render view padded to the full content width to clear remnants, with per-char colors
                 Console.SetCursorPosition(startLeft, startTop);
-                Console.Write(view.PadRight(contentWidth));
+                var prev = Console.ForegroundColor;
+                int vlen = Math.Min(view.Length, contentWidth);
+                for (int i = 0; i < vlen; i++)
+                {
+                    var ch = view[i];
+                    var color = EditorApp.ClassifyColorFor(theme, ch);
+                    if (Console.ForegroundColor != color) Console.ForegroundColor = color;
+                    Console.Write(ch);
+                }
+                if (vlen < contentWidth)
+                {
+                    if (Console.ForegroundColor != theme.Default) Console.ForegroundColor = theme.Default;
+                    Console.Write(new string(' ', contentWidth - vlen));
+                }
+                if (Console.ForegroundColor != prev) Console.ForegroundColor = prev;
 
                 // Place cursor within the view
                 int cursorCol = startLeft + Math.Min(cursor - scrollStart, contentWidth - 1);
@@ -106,6 +144,59 @@ internal partial record Command
                     Console.WriteLine();
                     return buffer.ToString();
                 }
+                else if (key.Key == ConsoleKey.Escape)
+                {
+                    Console.WriteLine();
+                    return null; // cancel editing; caller will not apply changes
+                }
+                else if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.LeftArrow)
+                {
+                    if (cursor > 0)
+                    {
+                        int i = cursor;
+                        // If we're between characters, start from the char to the left
+                        i--;
+                        // Skip separators left of the cursor
+                        while (i >= 0 && !IsWordChar(buffer[i])) i--;
+                        // Then move to the start of the word
+                        while (i >= 0 && IsWordChar(buffer[i])) i--;
+                        cursor = Math.Max(0, i + 1);
+                        Render();
+                    }
+                }
+                else if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.RightArrow)
+                {
+                    if (cursor < buffer.Length)
+                    {
+                        int i = cursor;
+                        // Skip separators to the right
+                        while (i < buffer.Length && !IsWordChar(buffer[i])) i++;
+                        // Then move to end of the word
+                        while (i < buffer.Length && IsWordChar(buffer[i])) i++;
+                        cursor = i;
+                        Render();
+                    }
+                }
+                else if (((key.Modifiers & ConsoleModifiers.Control) != 0 || (key.Modifiers & ConsoleModifiers.Alt) != 0) && key.Key == ConsoleKey.Backspace)
+                {
+                    if (cursor > 0)
+                    {
+                        int start = cursor;
+                        int i = cursor - 1;
+                        // Skip separators left of cursor
+                        while (i >= 0 && !IsWordChar(buffer[i])) i--;
+                        // Then the word to the left
+                        while (i >= 0 && IsWordChar(buffer[i])) i--;
+                        int delFrom = Math.Max(0, i + 1);
+                        int delLen = start - delFrom;
+                        if (delLen > 0)
+                        {
+                            buffer.Remove(delFrom, delLen);
+                            cursor = delFrom;
+                            Render();
+                        }
+                    }
+                }
                 else if (key.Key == ConsoleKey.Backspace)
                 {
                     if (cursor > 0)
@@ -113,6 +204,23 @@ internal partial record Command
                         buffer.Remove(cursor - 1, 1);
                         cursor--;
                         Render();
+                    }
+                }
+                else if (((key.Modifiers & ConsoleModifiers.Control) != 0 || (key.Modifiers & ConsoleModifiers.Alt) != 0) && key.Key == ConsoleKey.Delete)
+                {
+                    if (cursor < buffer.Length)
+                    {
+                        int i = cursor;
+                        // Skip separators to the right
+                        while (i < buffer.Length && !IsWordChar(buffer[i])) i++;
+                        // Then the word to the right
+                        while (i < buffer.Length && IsWordChar(buffer[i])) i++;
+                        int delLen = Math.Max(0, i - cursor);
+                        if (delLen > 0)
+                        {
+                            buffer.Remove(cursor, delLen);
+                            Render();
+                        }
                     }
                 }
                 else if (key.Key == ConsoleKey.Delete)
@@ -146,6 +254,8 @@ internal partial record Command
                     Render();
                 }
             }
+
+            static bool IsWordChar(char c) => char.IsLetterOrDigit(c);
         }
     }
 }
