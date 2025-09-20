@@ -58,30 +58,13 @@ internal sealed partial class EditorApp
         }
 
         Console.WriteLine();
-        Console.WriteLine("Commands: a|add, c|copy <n> [m], d|delete <n> [m], e|edit <n>, g|grep [regex], h|help, json <sep>, yaml <sep>, l|label [value], o|open, p|prefix [value], q|quit, r|reload, s|save, u|undo <n> [m]|all, w|whoami");
+        Console.WriteLine(CommandParser.GetSummaryLine());
     }
 
     private void ShowHelp()
     {
         Console.WriteLine();
-        Console.WriteLine("Help - Commands");
-        Console.WriteLine(new string('-', 40));
-        Console.WriteLine("a|add            Add a new key under the current prefix");
-        Console.WriteLine("c|copy <n> [m]   Copy rows n..m to another label and switch");
-        Console.WriteLine("d|delete <n> [m] Delete items n..m");
-        Console.WriteLine("e|edit <n>       Edit value of item number n");
-        Console.WriteLine("g|grep [regex]   Set key regex filter (no arg clears)");
-        Console.WriteLine("h|help|?         Show this help");
-        Console.WriteLine("json <sep>       Edit visible items as nested JSON split by <sep>");
-        Console.WriteLine("yaml <sep>       Edit visible items as nested YAML split by <sep>");
-        Console.WriteLine("o|open           Edit all visible items in external editor");
-        Console.WriteLine("p|prefix [value] Change prefix (no arg prompts)");
-        Console.WriteLine("l|label [value]  Change label filter (no arg clears; '-' = empty label)");
-        Console.WriteLine("q|quit           Quit the editor");
-        Console.WriteLine("r|reload         Reload from Azure and reconcile local changes");
-        Console.WriteLine("s|save           Save all pending changes to Azure");
-        Console.WriteLine("u|undo <n> [m]|all  Undo local changes for rows n..m, or 'all' to undo everything");
-        Console.WriteLine("w|whoami         Show current identity and endpoint");
+        Console.WriteLine(CommandParser.GetHelpText());
         Console.WriteLine();
         Console.WriteLine("Press Enter to return to the list...");
         Console.ReadLine();
