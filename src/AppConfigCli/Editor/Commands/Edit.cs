@@ -177,6 +177,26 @@ internal partial record Command
                         Render();
                     }
                 }
+                else if (((key.Modifiers & ConsoleModifiers.Control) != 0 || (key.Modifiers & ConsoleModifiers.Alt) != 0) && key.Key == ConsoleKey.Backspace)
+                {
+                    if (cursor > 0)
+                    {
+                        int start = cursor;
+                        int i = cursor - 1;
+                        // Skip separators left of cursor
+                        while (i >= 0 && !IsWordChar(buffer[i])) i--;
+                        // Then the word to the left
+                        while (i >= 0 && IsWordChar(buffer[i])) i--;
+                        int delFrom = Math.Max(0, i + 1);
+                        int delLen = start - delFrom;
+                        if (delLen > 0)
+                        {
+                            buffer.Remove(delFrom, delLen);
+                            cursor = delFrom;
+                            Render();
+                        }
+                    }
+                }
                 else if (key.Key == ConsoleKey.Backspace)
                 {
                     if (cursor > 0)
@@ -184,6 +204,23 @@ internal partial record Command
                         buffer.Remove(cursor - 1, 1);
                         cursor--;
                         Render();
+                    }
+                }
+                else if (((key.Modifiers & ConsoleModifiers.Control) != 0 || (key.Modifiers & ConsoleModifiers.Alt) != 0) && key.Key == ConsoleKey.Delete)
+                {
+                    if (cursor < buffer.Length)
+                    {
+                        int i = cursor;
+                        // Skip separators to the right
+                        while (i < buffer.Length && !IsWordChar(buffer[i])) i++;
+                        // Then the word to the right
+                        while (i < buffer.Length && IsWordChar(buffer[i])) i++;
+                        int delLen = Math.Max(0, i - cursor);
+                        if (delLen > 0)
+                        {
+                            buffer.Remove(cursor, delLen);
+                            Render();
+                        }
                     }
                 }
                 else if (key.Key == ConsoleKey.Delete)
