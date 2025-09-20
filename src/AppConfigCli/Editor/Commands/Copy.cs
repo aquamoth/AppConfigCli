@@ -1,0 +1,109 @@
+using System.Globalization;
+
+namespace AppConfigCli;
+
+internal partial record Command
+{
+    public sealed record Copy(int Start, int End) : Command
+    {
+        public static CommandSpec Spec => new CommandSpec
+        {
+            Aliases = new[] { "c", "copy" },
+            Summary = "c|copy <n> [m]",
+            Usage = "Usage: c|copy <n> [m]",
+            Description = "Copy rows n..m to another label and switch",
+            Parser = args =>
+            {
+                var (ok, s, e, err) = TryParseRange(args, "Usage: c|copy <n> [m]");
+                return ok ? (true, new Copy(s, e), null) : (false, null, err);
+            }
+        };
+        public override async Task<CommandResult> ExecuteAsync(EditorApp app)
+        {
+            var args = Start == End ? new[] { Start.ToString(CultureInfo.InvariantCulture) }
+                                     : new[] { Start.ToString(CultureInfo.InvariantCulture), End.ToString(CultureInfo.InvariantCulture) };
+            await CopyAsync(app, args);
+            return new CommandResult();
+        }
+
+        internal async Task CopyAsync(EditorApp app, string[] args)
+        {
+            if (app.Label is null)
+            {
+                Console.WriteLine("Copy requires an active label filter. Set one with l|label <value> first.");
+                Console.WriteLine("Press Enter to continue...");
+                Console.ReadLine();
+                return;
+            }
+
+            if (args.Length == 0)
+            {
+                Console.WriteLine("Usage: c|copy <n> [m]  (copies rows n..m)");
+                Console.WriteLine("Press Enter to continue...");
+                Console.ReadLine();
+                return;
+            }
+
+            if (!int.TryParse(args[0], out int start)) { Console.WriteLine("First argument must be an index."); Console.ReadLine(); return; }
+            int end = start;
+            if (args.Length >= 2 && int.TryParse(args[1], out int endParsed)) end = endParsed;
+            var actualIndices = app.MapVisibleRangeToItemIndices(start, end, out var error);
+            if (actualIndices is null) { Console.WriteLine(error); Console.ReadLine(); return; }
+
+            var selection = new List<(string ShortKey, string Value)>();
+            foreach (var idx in actualIndices)
+            {
+                var it = app.Items[idx];
+                if (it.State == ItemState.Deleted) continue;
+                var val = it.Value ?? string.Empty;
+                selection.Add((it.ShortKey, val));
+            }
+            if (selection.Count == 0)
+            {
+                Console.WriteLine("Nothing to copy in the selected range."); Console.ReadLine(); return;
+            }
+
+            Console.WriteLine("Copy to label (empty for none):");
+            Console.Write("> ");
+            var target = Console.ReadLine();
+            string? targetLabel = string.IsNullOrWhiteSpace(target) ? null : target!.Trim();
+
+            // Switch to target label and load items for that label
+            app.Label = targetLabel;
+            await app.LoadAsync();
+
+            int created = 0, updated = 0;
+            foreach (var (shortKey, value) in selection)
+            {
+                var existing = app.Items.FirstOrDefault(x => x.ShortKey.Equals(shortKey, StringComparison.Ordinal));
+                if (existing is null)
+                {
+                    app.Items.Add(new Item
+                    {
+                        FullKey = app.Prefix + shortKey,
+                        ShortKey = shortKey,
+                        Label = targetLabel,
+                        OriginalValue = null,
+                        Value = value,
+                        State = ItemState.New
+                    });
+                    created++;
+                }
+                else
+                {
+                    existing.Value = value;
+                    if (existing.OriginalValue == value)
+                        existing.State = ItemState.Unchanged;
+                    else if (!existing.IsNew)
+                        existing.State = ItemState.Modified;
+                    updated++;
+                }
+            }
+
+            app.Items.Sort(EditorApp.CompareItems);
+            Console.WriteLine($"Copied {selection.Count} item(s): {created} created, {updated} updated under label [{targetLabel ?? "(none)"}].");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+        }
+    }
+}

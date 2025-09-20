@@ -1,26 +1,59 @@
 using System;
+using System.Threading.Tasks;
+using System;
+using System.Collections.Generic;
+using System.Globalization;
+using System.Threading.Tasks;
 
 namespace AppConfigCli;
 
-// Typed commands parsed from CLI input
-internal abstract record Command
+// Typed commands parsed from CLI input; each command executes itself on the EditorApp
+internal sealed record CommandResult(bool ShouldExit = false);
+
+internal abstract partial record Command
 {
-    public sealed record Add() : Command;
-    public sealed record Edit(int Index) : Command;
-    public sealed record Delete(int Start, int End) : Command;
-    public sealed record Copy(int Start, int End) : Command;
-    public sealed record Label(string? Value, bool Clear, bool Empty) : Command; // Clear: no args, Empty: '-'
-    public sealed record Grep(string? Pattern, bool Clear) : Command;
-    public sealed record Save() : Command;
-    public sealed record Reload() : Command;
-    public sealed record Quit() : Command;
-    public sealed record Help() : Command;
-    public sealed record Open() : Command;
-    public sealed record Prefix(string? Value, bool Prompt) : Command; // Prompt when no arg
-    public sealed record UndoRange(int Start, int End) : Command;
-    public sealed record UndoAll() : Command;
-    public sealed record Json(string Separator) : Command;
-    public sealed record Yaml(string Separator) : Command;
-    public sealed record WhoAmI() : Command;
+    public abstract Task<CommandResult> ExecuteAsync(EditorApp app);
+
+    // Shared spec model for parser + help
+    internal sealed class CommandSpec
+    {
+        public required string[] Aliases { get; init; }
+        public required string Summary { get; init; }
+        public required string Usage { get; init; }
+        public required string Description { get; init; }
+        public required Func<string[], (bool Ok, Command? Command, string? Error)> Parser { get; init; }
+        public bool Matches(string token) => Array.Exists(Aliases, a => string.Equals(a, token, StringComparison.OrdinalIgnoreCase));
+    }
+
+    // Helper shared by range-based commands
+    internal static (bool Ok, int Start, int End, string? Error) TryParseRange(string[] args, string usage)
+    {
+        if (args.Length < 1 || !int.TryParse(args[0], NumberStyles.Integer, CultureInfo.InvariantCulture, out var start))
+            return (false, 0, 0, usage);
+        var end = start;
+        if (args.Length >= 2 && int.TryParse(args[1], NumberStyles.Integer, CultureInfo.InvariantCulture, out var e)) end = e;
+        return (true, start, end, null);
+    }
+
+    // Centralized list of all command specs (content lives in each command file)
+    public static IReadOnlyList<CommandSpec> AllSpecs =>
+    [
+        Add.Spec,
+        Edit.Spec,
+        Delete.Spec,
+        Copy.Spec,
+        Label.Spec,
+        Grep.Spec,
+        Save.Spec,
+        Reload.Spec,
+        Quit.Spec,
+        Help.Spec,
+        Open.Spec,
+        Prefix.Spec,
+        Undo.Spec,
+        Json.Spec,
+        Yaml.Spec,
+        WhoAmI.Spec,
+    ];
 }
 
