@@ -144,6 +144,11 @@ internal partial record Command
                     Console.WriteLine();
                     return buffer.ToString();
                 }
+                else if (key.Key == ConsoleKey.Escape)
+                {
+                    Console.WriteLine();
+                    return null; // cancel editing; caller will not apply changes
+                }
                 else if (key.Key == ConsoleKey.Backspace)
                 {
                     if (cursor > 0)
