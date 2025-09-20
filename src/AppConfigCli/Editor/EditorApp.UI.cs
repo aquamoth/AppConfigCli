@@ -7,6 +7,10 @@ namespace AppConfigCli;
 
 internal sealed partial class EditorApp
 {
+    // Define which characters count as "control" for highlighting
+    private static readonly System.Collections.Generic.HashSet<char> ControlChars =
+        new System.Collections.Generic.HashSet<char>(",.-[]{}!:/\\()@#$%^&*+=?|<>;'\"_".ToCharArray());
+
     private void Render()
     {
         Console.Clear();
@@ -45,16 +49,26 @@ internal sealed partial class EditorApp
             var keyDisp = TextTruncation.TruncateFixed(item.ShortKey, keyWidth);
             var labelText = string.IsNullOrEmpty(item.Label) ? "(none)" : item.Label;
             var labelDisp = TextTruncation.TruncateFixed(labelText, labelWidth);
+            var valFull = (item.Value ?? string.Empty).Replace('\n', ' ');
+            var valDisp = valueWidth > 0 ? TextTruncation.TruncateFixed(valFull, valueWidth) : string.Empty;
+
+            // Left prefix: index, state
+            Console.ForegroundColor = Theme.Default;
+            Console.Write($"{i + 1,3}  {s}  ");
+            // Key (colored)
+            if (Theme.Enabled) WriteColoredFixed(keyDisp, keyWidth); else Console.Write(PadColumn(keyDisp, keyWidth));
+            Console.ForegroundColor = Theme.Default;
+            Console.Write("  ");
+            // Label (unstyled)
+            Console.Write(PadColumn(labelDisp, labelWidth));
+
             if (valueWidth > 0)
             {
-                var valFull = (item.Value ?? string.Empty).Replace('\n', ' ');
-                var val = TextTruncation.TruncateFixed(valFull, valueWidth);
-                Console.WriteLine($"{i + 1,3}  {s}  {PadColumn(keyDisp, keyWidth)}  {PadColumn(labelDisp, labelWidth)}  {val}");
+                Console.Write("  ");
+                if (Theme.Enabled) WriteColoredFixed(valDisp, valueWidth); else Console.Write(PadColumn(valDisp, valueWidth));
             }
-            else
-            {
-                Console.WriteLine($"{i + 1,3}  {s}  {PadColumn(keyDisp, keyWidth)}  {PadColumn(labelDisp, labelWidth)}");
-            }
+            Console.ForegroundColor = Theme.Default;
+            Console.WriteLine();
         }
 
         Console.WriteLine();
@@ -80,5 +94,34 @@ internal sealed partial class EditorApp
         var t = TextTruncation.TruncateFixed(text, width);
         if (t.Length < width) return t.PadRight(width);
         return t;
+    }
+
+    private void WriteColoredFixed(string text, int width)
+    {
+        // Write text up to width with per-character coloring, then pad to width
+        int len = Math.Min(text.Length, width);
+        var prev = Console.ForegroundColor;
+        for (int i = 0; i < len; i++)
+        {
+            var ch = text[i];
+            var color = ClassifyColor(ch);
+            if (Console.ForegroundColor != color) Console.ForegroundColor = color;
+            Console.Write(ch);
+        }
+        if (len < width)
+        {
+            if (Console.ForegroundColor != Theme.Default) Console.ForegroundColor = Theme.Default;
+            Console.Write(new string(' ', width - len));
+        }
+        if (Console.ForegroundColor != prev) Console.ForegroundColor = prev;
+    }
+
+    private ConsoleColor ClassifyColor(char ch)
+    {
+        if (ch == '…') return Theme.Default; // keep ellipsis neutral
+        if (char.IsDigit(ch)) return Theme.Number;
+        if (ControlChars.Contains(ch) || char.IsPunctuation(ch)) return Theme.Control;
+        if (char.IsLetter(ch)) return Theme.Letters;
+        return Theme.Default; // includes whitespace
     }
 }

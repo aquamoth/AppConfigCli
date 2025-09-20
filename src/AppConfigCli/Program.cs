@@ -80,7 +80,9 @@ internal class Program
         }
 
         var repo = new AzureAppConfigRepository(client);
-        var app = new EditorApp(repo, options.Prefix, options.Label, whoAmIAction, authModeDesc);
+        // If no theme is specified, force the built-in 'default' preset
+        var theme = ConsoleTheme.Load(options.Theme ?? "default", options.NoColor);
+        var app = new EditorApp(repo, options.Prefix, options.Label, whoAmIAction, authModeDesc, theme: theme);
         try
         {
             // Helpers to construct nested structure with objects/arrays
@@ -453,7 +455,7 @@ internal class Program
     {
         Console.WriteLine("Azure App Configuration Section Editor");
         Console.WriteLine();
-        Console.WriteLine("Usage: appconfig [--prefix <keyPrefix>] [--label <label>] [--endpoint <url>] [--tenant <guid>] [--auth <mode>] [--version]");
+        Console.WriteLine("Usage: appconfig [--prefix <keyPrefix>] [--label <label>] [--endpoint <url>] [--tenant <guid>] [--auth <mode>] [--theme <name>] [--no-color] [--version]");
         Console.WriteLine();
         Console.WriteLine("Options:");
         Console.WriteLine("  --prefix <value>    Optional. Key prefix (section) to load initially");
@@ -461,6 +463,8 @@ internal class Program
         Console.WriteLine("  --endpoint <url>    Optional. App Configuration endpoint for AAD auth");
         Console.WriteLine("  --tenant <guid>     Optional. Entra ID tenant for AAD auth");
         Console.WriteLine("  --auth <mode>       Optional. Auth method: auto|device|browser|cli|vscode (default: auto)");
+        Console.WriteLine("  --theme <name>      Optional. Theme preset: default|mono|no-color|solarized");
+        Console.WriteLine("  --no-color          Optional. Disable color output (overrides theme)");
         Console.WriteLine("  --version           Print version and exit");
         Console.WriteLine();
         Console.WriteLine("Environment:");
@@ -506,6 +510,12 @@ internal class Program
                 case "--auth":
                     if (i + 1 < args.Length) { opts.Auth = args[++i].ToLowerInvariant(); }
                     break;
+                case "--theme":
+                    if (i + 1 < args.Length) { opts.Theme = args[++i]; }
+                    break;
+                case "--no-color":
+                    opts.NoColor = true;
+                    break;
                 case "--version":
                     opts.ShowVersion = true;
                     break;
@@ -527,6 +537,8 @@ internal class Program
         public string? TenantId { get; set; }
         public string? Auth { get; set; } // device|browser|cli|vscode|auto
         public bool ShowVersion { get; set; }
+        public string? Theme { get; set; }
+        public bool NoColor { get; set; }
     }
 }
 
@@ -546,8 +558,9 @@ internal sealed partial class EditorApp
     internal Regex? KeyRegex { get; set; }
     internal IFileSystem Filesystem { get; init; }
     internal IExternalEditor ExternalEditor { get; init; }
+    internal ConsoleTheme Theme { get; init; }
 
-    public EditorApp(AppConfigCli.Core.IConfigRepository repo, string? prefix, string? label, Func<Task>? whoAmI = null, string authModeDesc = "", IFileSystem? fs = null, IExternalEditor? externalEditor = null)
+    public EditorApp(AppConfigCli.Core.IConfigRepository repo, string? prefix, string? label, Func<Task>? whoAmI = null, string authModeDesc = "", IFileSystem? fs = null, IExternalEditor? externalEditor = null, ConsoleTheme? theme = null)
     {
         _repo = repo;
         Prefix = prefix;
@@ -556,6 +569,7 @@ internal sealed partial class EditorApp
         _authModeDesc = authModeDesc;
         Filesystem = fs ?? new DefaultFileSystem();
         ExternalEditor = externalEditor ?? new DefaultExternalEditor();
+        Theme = theme ?? ConsoleTheme.Load();
     }
 
     public async Task LoadAsync()
