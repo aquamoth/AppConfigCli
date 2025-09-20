@@ -149,6 +149,34 @@ internal partial record Command
                     Console.WriteLine();
                     return null; // cancel editing; caller will not apply changes
                 }
+                else if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.LeftArrow)
+                {
+                    if (cursor > 0)
+                    {
+                        int i = cursor;
+                        // If we're between characters, start from the char to the left
+                        i--;
+                        // Skip separators left of the cursor
+                        while (i >= 0 && !IsWordChar(buffer[i])) i--;
+                        // Then move to the start of the word
+                        while (i >= 0 && IsWordChar(buffer[i])) i--;
+                        cursor = Math.Max(0, i + 1);
+                        Render();
+                    }
+                }
+                else if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.RightArrow)
+                {
+                    if (cursor < buffer.Length)
+                    {
+                        int i = cursor;
+                        // Skip separators to the right
+                        while (i < buffer.Length && !IsWordChar(buffer[i])) i++;
+                        // Then move to end of the word
+                        while (i < buffer.Length && IsWordChar(buffer[i])) i++;
+                        cursor = i;
+                        Render();
+                    }
+                }
                 else if (key.Key == ConsoleKey.Backspace)
                 {
                     if (cursor > 0)
@@ -189,6 +217,8 @@ internal partial record Command
                     Render();
                 }
             }
+
+            static bool IsWordChar(char c) => char.IsLetterOrDigit(c);
         }
     }
 }
