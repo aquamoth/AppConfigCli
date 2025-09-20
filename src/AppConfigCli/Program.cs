@@ -556,6 +556,11 @@ internal sealed partial class EditorApp
         _externalEditor = externalEditor ?? new DefaultExternalEditor();
     }
 
+    // Explicit internal accessors for commands and tests (no reflection)
+    internal string? Prefix => _prefix;
+    internal string? Label => _label;
+    internal System.Collections.Generic.List<Item> Items => _items;
+
     public async Task LoadAsync()
     {
         // Build server snapshot
@@ -583,105 +588,47 @@ internal sealed partial class EditorApp
             Console.Write("> ");
             var input = Console.ReadLine();
             if (input is null) continue;
-            var parts = input.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
-            if (parts.Length == 0) continue;
-            var cmd = parts[0].ToLowerInvariant();
-
-            switch (cmd)
+            if (!CommandParser.TryParse(input, out var cmd, out var err) || cmd is null)
             {
-                case "e":
-                case "edit":
-                    Edit(parts.Skip(1).ToArray());
-                    break;
-                case "a":
-                case "add":
-                    Add();
-                    break;
-                case "c":
-                case "copy":
-                    await CopyAsync(parts.Skip(1).ToArray());
-                    break;
-                case "p":
-                case "prefix":
-                    await ChangePrefixAsync(parts.Skip(1).ToArray());
-                    break;
-                case "d":
-                case "delete":
-                    Delete(parts.Skip(1).ToArray());
-                    break;
-                case "u":
-                case "undo":
-                    Undo(parts.Skip(1).ToArray());
-                    break;
-                case "g":
-                case "grep":
-                    SetKeyRegex(parts.Skip(1).ToArray());
-                    break;
-                case "json":
-                    await OpenJsonInEditorAsync(parts.Skip(1).ToArray());
-                    break;
-                case "yaml":
-                    await OpenYamlInEditorAsync(parts.Skip(1).ToArray());
-                    break;
-                case "label":
-                case "l":
-                    await ChangeLabelAsync(parts.Skip(1).ToArray());
-                    break;
-                case "s":
-                case "save":
-                    await SaveAsync();
-                    break;
-                case "r":
-                case "reload":
-                    await LoadAsync();
-                    break;
-                case "q":
-                case "quit":
-                case "exit":
-                    if (HasPendingChanges(out var newCount, out var modCount, out var delCount))
-                    {
-                        Console.WriteLine($"You have unsaved changes: +{newCount} new, *{modCount} modified, -{delCount} deleted.");
-                        Console.WriteLine("Do you want to save before exiting?");
-                        Console.WriteLine("  S) Save and quit");
-                        Console.WriteLine("  Q) Quit without saving");
-                        Console.WriteLine("  C) Cancel");
-                        while (true)
-                        {
-                            Console.Write("> ");
-                            var choice = (Console.ReadLine() ?? string.Empty).Trim().ToLowerInvariant();
-                            if (choice.Length == 0) continue;
-                            var ch = choice[0];
-                            if (ch == 'c') break; // cancel quit
-                            if (ch == 's') { await SaveAsync(pause: false); return; }
-                            if (ch == 'q') { return; }
-                            Console.WriteLine("Please enter S, Q, or C.");
-                        }
-                        break;
-                    }
-                    else
-                    {
-                        return;
-                    }
-                case "h":
-                case "?":
-                case "help":
-                    ShowHelp();
-                    break;
-                case "whoami":
-                case "w":
-                    if (_whoAmI is not null) await _whoAmI(); else Console.WriteLine("whoami not available in this mode.");
-                    Console.WriteLine("Press Enter to continue...");
-                    Console.ReadLine();
-                    break;
-                case "o":
-                case "open":
-                    await OpenInEditorAsync();
-                    break;
-                default:
-                    Console.WriteLine("Unknown command. Type 'h' for help.");
-                    break;
+                if (!string.IsNullOrEmpty(err)) Console.WriteLine(err);
+                continue;
+            }
+            var result = await cmd.ExecuteAsync(this);
+            if (result.ShouldExit) return;
+        }
+    }
+
+    // Helper to allow WhoAmI command invocation without exposing internals publicly
+    internal async Task InvokeWhoAmIAsync()
+    {
+        if (_whoAmI is not null) await _whoAmI(); else Console.WriteLine("whoami not available in this mode.");
+        Console.WriteLine("Press Enter to continue...");
+        Console.ReadLine();
+    }
+
+    // Helper to centralize quit confirmation flow used by Quit command
+    internal async Task<bool> TryQuitAsync()
+    {
+        if (HasPendingChanges(out var newCount, out var modCount, out var delCount))
+        {
+            Console.WriteLine($"You have unsaved changes: +{newCount} new, *{modCount} modified, -{delCount} deleted.");
+            Console.WriteLine("Do you want to save before exiting?");
+            Console.WriteLine("  S) Save and quit");
+            Console.WriteLine("  Q) Quit without saving");
+            Console.WriteLine("  C) Cancel");
+            while (true)
+            {
+                Console.Write("> ");
+                var choice = (Console.ReadLine() ?? string.Empty).Trim().ToLowerInvariant();
+                if (choice.Length == 0) continue;
+                var ch = choice[0];
+                if (ch == 'c') return false; // cancel quit
+                if (ch == 's') { await SaveAsync(pause: false); return true; }
+                if (ch == 'q') { return true; }
+                Console.WriteLine("Please enter S, Q, or C.");
             }
         }
+        return true;
     }
 
     private static string MakeKey(string fullKey, string? label)
@@ -696,13 +643,13 @@ internal sealed partial class EditorApp
         label = rest.Length == 0 ? null : rest;
     }
 
-    
+
 
     // Render moved to Editor/EditorApp.UI.cs
 
     // ShowHelp moved to Editor/EditorApp.UI.cs
 
-    private void Edit(string[] args)
+    internal void Edit(string[] args)
     {
         if (!TryParseIndex(args, out var idx)) return;
         var item = _items[idx];
@@ -725,7 +672,7 @@ internal sealed partial class EditorApp
         var k = Console.ReadLine();
         if (string.IsNullOrWhiteSpace(k)) return;
         k = k.Trim();
-        
+
         string? chosenLabel = _label;
         if (chosenLabel is not null)
         {
@@ -764,7 +711,7 @@ internal sealed partial class EditorApp
         _items.Sort(CompareItems);
     }
 
-    private async Task CopyAsync(string[] args)
+    internal async Task CopyAsync(string[] args)
     {
         if (_label is null)
         {
@@ -844,7 +791,7 @@ internal sealed partial class EditorApp
         Console.ReadLine();
     }
 
-    private void Delete(string[] args)
+    internal void Delete(string[] args)
     {
         if (args.Length == 0)
         {
@@ -881,7 +828,7 @@ internal sealed partial class EditorApp
         Console.ReadLine();
     }
 
-    private void Undo(string[] args)
+    internal void Undo(string[] args)
     {
         if (args.Length == 0)
         {
@@ -935,7 +882,7 @@ internal sealed partial class EditorApp
         Console.ReadLine();
     }
 
-    private void UndoAll()
+    internal void UndoAll()
     {
         int removedNew = 0, restored = 0, untouched = 0;
         // Iterate descending to safely remove new items
@@ -989,7 +936,7 @@ internal sealed partial class EditorApp
         return true;
     }
 
-    private async Task ChangeLabelAsync(string[] args)
+    internal async Task ChangeLabelAsync(string[] args)
     {
         if (args.Length == 0)
         {
@@ -1013,7 +960,7 @@ internal sealed partial class EditorApp
         await LoadAsync();
     }
 
-    private async Task ChangePrefixAsync(string[] args)
+    internal async Task ChangePrefixAsync(string[] args)
     {
         string? newPrefix = null;
         if (args.Length == 0)
@@ -1052,7 +999,7 @@ internal sealed partial class EditorApp
         await LoadAsync();
     }
 
-    private async Task SaveAsync(bool pause = true)
+    internal async Task SaveAsync(bool pause = true)
     {
         Console.WriteLine("Saving changes...");
         int changes = 0;
@@ -1116,7 +1063,7 @@ internal sealed partial class EditorApp
         }
     }
 
-    private async Task OpenInEditorAsync()
+    internal async Task OpenInEditorAsync()
     {
         await Task.CompletedTask;
         if (_label is null)
@@ -1166,7 +1113,7 @@ internal sealed partial class EditorApp
         }
     }
 
-    private async Task OpenJsonInEditorAsync(string[] args)
+    internal async Task OpenJsonInEditorAsync(string[] args)
     {
         await Task.CompletedTask;
         if (_label is null)
@@ -1229,7 +1176,7 @@ internal sealed partial class EditorApp
             Console.ReadLine();
             return;
 
-            
+
         }
         finally
         {
@@ -1237,7 +1184,7 @@ internal sealed partial class EditorApp
         }
     }
 
-    private async Task OpenYamlInEditorAsync(string[] args)
+    internal async Task OpenYamlInEditorAsync(string[] args)
     {
         await Task.CompletedTask;
         if (_label is null)
@@ -1421,7 +1368,7 @@ internal sealed partial class EditorApp
                 return;
             }
 
-            
+
 
             // Apply edits via StructuredEditHelper and return
             var editedYaml = string.Join("\n", _fs.ReadAllLines(file));
@@ -1440,7 +1387,7 @@ internal sealed partial class EditorApp
             Console.ReadLine();
             return;
 
-            
+
         }
         finally
         {
@@ -1483,7 +1430,7 @@ internal sealed partial class EditorApp
     private static string QuoteIfNeeded(string path)
         => path.Contains(' ') ? $"\"{path}\"" : path;
 
-    private static string ReadLineWithInitial(string initial)
+    internal static string ReadLineWithInitial(string initial)
     {
         var buffer = new StringBuilder(initial);
         int cursor = buffer.Length; // insertion index in buffer
@@ -1590,7 +1537,7 @@ internal sealed partial class EditorApp
 
     // PadColumn moved to Editor/EditorApp.UI.cs
 
-    private bool HasPendingChanges(out int newCount, out int modCount, out int delCount)
+    internal bool HasPendingChanges(out int newCount, out int modCount, out int delCount)
     {
         newCount = _items.Count(i => i.State == ItemState.New);
         modCount = _items.Count(i => i.State == ItemState.Modified);
@@ -1598,9 +1545,9 @@ internal sealed partial class EditorApp
         return (newCount + modCount + delCount) > 0;
     }
 
-    
 
-    private static int CompareItems(Item a, Item b)
+
+    internal static int CompareItems(Item a, Item b)
     {
         int c = string.Compare(a.ShortKey, b.ShortKey, StringComparison.Ordinal);
         if (c != 0) return c;
@@ -1648,7 +1595,7 @@ internal sealed partial class EditorApp
 
     // Layout moved to Core.UI.TableLayout
 
-    private List<Item> GetVisibleItems()
+    internal List<Item> GetVisibleItems()
     {
         // Delegate visibility to Core.ItemFilter to keep semantics centralized
         var mapper = new EditorMappers();
@@ -1794,7 +1741,7 @@ internal sealed partial class EditorApp
         while (list.Count < size) list.Add(null);
     }
 
-    private void SetKeyRegex(string[] args)
+    internal void SetKeyRegex(string[] args)
     {
         if (args.Length == 0)
         {
@@ -1816,7 +1763,7 @@ internal sealed partial class EditorApp
         }
     }
 
-    private List<int>? MapVisibleRangeToItemIndices(int start, int end, out string error)
+    internal List<int>? MapVisibleRangeToItemIndices(int start, int end, out string error)
     {
         // Use Core.ItemFilter to compute indices against a mapped Core list
         var mapper = new EditorMappers();

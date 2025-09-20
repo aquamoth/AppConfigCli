@@ -61,7 +61,7 @@ internal sealed partial class EditorApp
         Console.WriteLine(CommandParser.GetSummaryLine());
     }
 
-    private void ShowHelp()
+    internal void ShowHelp()
     {
         Console.WriteLine();
         Console.WriteLine(CommandParser.GetHelpText());
