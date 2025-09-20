@@ -92,6 +92,16 @@ public class CommandParserTests
     }
 
     [Fact]
+    public void Json_Yaml_default_separator_is_colon()
+    {
+        AppConfigCli.CommandParser.TryParse("json", out var j0, out _).Should().BeTrue();
+        (j0 as AppConfigCli.Command.Json)!.Separator.Should().Be(":");
+
+        AppConfigCli.CommandParser.TryParse("yaml", out var y0, out _).Should().BeTrue();
+        (y0 as AppConfigCli.Command.Yaml)!.Separator.Should().Be(":");
+    }
+
+    [Fact]
     public void Unknown_command_errors()
     {
         AppConfigCli.CommandParser.TryParse("zzz", out var cmd, out var err).Should().BeFalse();
@@ -99,4 +109,3 @@ public class CommandParserTests
         err.Should().NotBeNull();
     }
 }
-

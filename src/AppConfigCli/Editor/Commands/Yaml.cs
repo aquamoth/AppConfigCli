@@ -10,10 +10,14 @@ internal partial record Command
         public static CommandSpec Spec => new CommandSpec
         {
             Aliases = new[] { "yaml" },
-            Summary = "yaml <sep>",
-            Usage = "Usage: yaml <separator>",
+            Summary = "yaml [sep]",
+            Usage = "Usage: yaml [separator] (default ':')",
             Description = "Edit visible items as nested YAML split by <sep>",
-            Parser = args => args.Length < 1 ? (false, null, "Usage: yaml <separator>") : (true, new Yaml(string.Join(' ', args)), null)
+            Parser = args =>
+            {
+                var sep = args.Length < 1 ? ":" : string.Join(' ', args);
+                return (true, new Yaml(sep), null);
+            }
         };
         public override async Task<CommandResult> ExecuteAsync(EditorApp app)
         {
@@ -28,14 +32,6 @@ internal partial record Command
             if (app.Label is null)
             {
                 Console.WriteLine("yaml requires an active label filter. Set one with l|label <value> first.");
-                Console.WriteLine("Press Enter to continue...");
-                Console.ReadLine();
-                return;
-            }
-
-            if (args.Length == 0)
-            {
-                Console.WriteLine("Usage: yaml <separator>   e.g., yaml :");
                 Console.WriteLine("Press Enter to continue...");
                 Console.ReadLine();
                 return;

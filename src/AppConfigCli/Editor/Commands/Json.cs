@@ -7,10 +7,14 @@ internal partial record Command
         public static CommandSpec Spec => new CommandSpec
         {
             Aliases = new[] { "json" },
-            Summary = "json <sep>",
-            Usage = "Usage: json <separator>",
+            Summary = "json [sep]",
+            Usage = "Usage: json [separator] (default ':')",
             Description = "Edit visible items as nested JSON split by <sep>",
-            Parser = args => args.Length < 1 ? (false, null, "Usage: json <separator>") : (true, new Json(string.Join(' ', args)), null)
+            Parser = args =>
+            {
+                var sep = args.Length < 1 ? ":" : string.Join(' ', args);
+                return (true, new Json(sep), null);
+            }
         };
 
         public override async Task<CommandResult> ExecuteAsync(EditorApp app)
@@ -21,14 +25,6 @@ internal partial record Command
             if (app.Label is null)
             {
                 Console.WriteLine("json requires an active label filter. Set one with l|label <value> first.");
-                Console.WriteLine("Press Enter to continue...");
-                Console.ReadLine();
-                return new CommandResult();
-            }
-
-            if (args.Length == 0)
-            {
-                Console.WriteLine("Usage: json <separator>   e.g., json :");
                 Console.WriteLine("Press Enter to continue...");
                 Console.ReadLine();
                 return new CommandResult();

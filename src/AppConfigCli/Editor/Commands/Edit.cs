@@ -24,7 +24,16 @@ internal partial record Command
 
         public override Task<CommandResult> ExecuteAsync(EditorApp app)
         {
-            var idx = Index;
+            // Map 1-based visible index to actual item index
+            var indices = app.MapVisibleRangeToItemIndices(Index, Index, out var error);
+            if (indices is null || indices.Count != 1)
+            {
+                Console.WriteLine(string.IsNullOrEmpty(error) ? "Invalid index." : error);
+                Console.WriteLine("Press Enter to continue...");
+                Console.ReadLine();
+                return Task.FromResult(new CommandResult());
+            }
+            var idx = indices[0];
             var item = app.Items[idx];
             var label = item.Label ?? "(none)";
             Console.WriteLine($"Editing '{item.ShortKey}' [{label}]  (Enter to save)");
