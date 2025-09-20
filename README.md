@@ -51,8 +51,8 @@ $env:APP_CONFIG_ENDPOINT = "https://<name>.azconfig.io"
 
 Using the solution:
 ```bash
-dotnet restore CodexAppConfig.sln
-dotnet build CodexAppConfig.sln
+dotnet restore AppConfigCli.sln
+dotnet build AppConfigCli.sln
 dotnet run --project src/AppConfigCli -- --prefix app:settings: --label "$APP_CONFIG_LABEL"
 # --prefix is optional; you can set it later in-app with p|prefix
 ```
@@ -104,7 +104,7 @@ Legend: `*` modified, `+` new, `-` delete pending, ` ` unchanged
 
 ## Project Layout
 
-- `CodexAppConfig.sln`: Solution file
+- `AppConfigCli.sln`: Solution file
 - `src/AppConfigCli`: .NET 9 console app
 
 ## Implementation Notes

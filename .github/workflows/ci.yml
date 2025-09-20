@@ -26,14 +26,14 @@ jobs:
           dotnet-version: '9.0.x'
 
       - name: Restore
-        run: dotnet restore CodexAppConfig.sln
+        run: dotnet restore AppConfigCli.sln
 
       - name: Build
-        run: dotnet build CodexAppConfig.sln --configuration Release --nologo --verbosity minimal
+        run: dotnet build AppConfigCli.sln --configuration Release --nologo --verbosity minimal
 
       - name: Test with coverage
         run: |
-          dotnet test CodexAppConfig.sln \
+          dotnet test AppConfigCli.sln \
             --configuration Release \
             --nologo --verbosity minimal \
             --collect:"XPlat Code Coverage"

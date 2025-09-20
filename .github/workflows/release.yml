@@ -30,9 +30,9 @@ jobs:
 
       - name: Build
         run: |
-          dotnet restore CodexAppConfig.sln
-          dotnet build CodexAppConfig.sln -c Release --nologo --verbosity minimal
-          dotnet test CodexAppConfig.sln -c Release --nologo --verbosity minimal
+          dotnet restore AppConfigCli.sln
+          dotnet build AppConfigCli.sln -c Release --nologo --verbosity minimal
+          dotnet test AppConfigCli.sln -c Release --nologo --verbosity minimal
 
       - name: Compute version (NBGV)
         id: nbgv

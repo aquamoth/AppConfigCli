@@ -56,7 +56,7 @@ Auth Notes
 - Endpoint discovery uses ARM (subscriptions -> configurationStores) and requires ARM read permissions.
 
 Build/Run Quick Start
-- Build: `dotnet build CodexAppConfig.sln`
+- Build: `dotnet build AppConfigCli.sln`
 - Run (connection string):
   - `export APP_CONFIG_CONNECTION_STRING="Endpoint=...;Id=...;Secret=..."`
   - `dotnet run --project src/AppConfigCli -- --prefix app:settings:`
@@ -94,7 +94,7 @@ Next Session: Likely Tasks
 - Packaging/CI: publish self-contained binaries; add GitHub Actions (build, test, coverage artifacts).
 
 Repo Pointers
-- Solution: `CodexAppConfig.sln`
+- Solution: `AppConfigCli.sln`
 - App: `src/AppConfigCli` (CLI + editor; modularized via partials/abstractions)
 - Core: `src/AppConfigCli.Core` (domain, filters, reconciliation, layout)
 - Tests:
@@ -103,7 +103,7 @@ Repo Pointers
 - README: end-user build/run instructions and environment setup
 
 How to Resume Quickly
-1) `dotnet build CodexAppConfig.sln`
+1) `dotnet build AppConfigCli.sln`
 2) `dotnet test -v minimal` (should be all green, zero build warnings)
 3) Run with your preferred auth:
    - ConnStr: set `APP_CONFIG_CONNECTION_STRING` → `dotnet run --project src/AppConfigCli -- --prefix <prefix>`
