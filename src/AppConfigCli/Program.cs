@@ -649,7 +649,9 @@ internal sealed partial class EditorApp
         try { startLeft = Console.CursorLeft; startTop = Console.CursorTop; }
         catch { startLeft = 0; startTop = 0; }
         int lastLen = 0;
-        int histIndex = history?.Count ?? 0; // one past the last (blank)
+        int histIndex = history?.Count ?? 0; // one past the last (bottom slot)
+        string draft = string.Empty; // user's in-progress new command at bottom
+        bool modifiedFromHistory = false; // set when user edits a recalled history line
 
         void Render()
         {
@@ -685,13 +687,28 @@ internal sealed partial class EditorApp
             }
             if (key.Key == ConsoleKey.Backspace)
             {
-                if (sb.Length > 0) { sb.Length--; Render(); }
+                // If editing a recalled command, switch to bottom buffer and preserve current edits
+                if (histIndex != (history?.Count ?? 0) && !modifiedFromHistory)
+                {
+                    modifiedFromHistory = true;
+                    draft = sb.ToString();
+                    histIndex = history?.Count ?? 0;
+                }
+                if (sb.Length > 0)
+                {
+                    sb.Length--;
+                    if (histIndex == (history?.Count ?? 0)) draft = sb.ToString();
+                    Render();
+                }
                 continue;
             }
             if (key.Key == ConsoleKey.UpArrow && history is not null)
             {
                 if (histIndex > 0)
                 {
+                    // Save current bottom draft before moving up from bottom slot
+                    if (histIndex == history.Count)
+                        draft = sb.ToString();
                     histIndex--;
                     sb.Clear();
                     sb.Append(history[histIndex]);
@@ -705,15 +722,30 @@ internal sealed partial class EditorApp
                 {
                     histIndex++;
                     sb.Clear();
-                    if (histIndex == history.Count) { /* blank */ }
-                    else sb.Append(history[histIndex]);
+                    if (histIndex == history.Count)
+                    {
+                        // Restore bottom draft when returning to bottom slot
+                        sb.Append(draft);
+                    }
+                    else
+                    {
+                        sb.Append(history[histIndex]);
+                    }
                     Render();
                 }
                 continue;
             }
             if (!char.IsControl(key.KeyChar))
             {
+                // If editing a recalled command, switch to bottom buffer and preserve current edits
+                if (histIndex != (history?.Count ?? 0) && !modifiedFromHistory)
+                {
+                    modifiedFromHistory = true;
+                    draft = sb.ToString();
+                    histIndex = history?.Count ?? 0;
+                }
                 sb.Append(key.KeyChar);
+                if (histIndex == (history?.Count ?? 0)) draft = sb.ToString();
                 Render();
             }
         }
