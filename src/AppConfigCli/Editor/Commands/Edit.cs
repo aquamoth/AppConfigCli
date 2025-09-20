@@ -36,10 +36,13 @@ internal partial record Command
             var idx = indices[0];
             var item = app.Items[idx];
             var label = item.Label ?? "(none)";
-            Console.WriteLine($"Editing '{item.ShortKey}' [{label}]  (Enter to save)");
+            // Colorized header: key colored, label plain
+            Console.Write("Editing '");
+            WriteColoredInline(item.ShortKey, app.Theme);
+            Console.Write("' [" + label + "]  (Enter to save)\n");
             Console.Write("> ");
 
-            var newVal = ReadLineWithInitial(item.Value ?? string.Empty);
+            var newVal = ReadLineWithInitial(item.Value ?? string.Empty, app.Theme);
             if (newVal is not null)
             {
                 item.Value = newVal;
@@ -52,7 +55,19 @@ internal partial record Command
             return Task.FromResult(new CommandResult());
         }
 
-        internal static string ReadLineWithInitial(string initial)
+        private static void WriteColoredInline(string text, ConsoleTheme theme)
+        {
+            var prev = Console.ForegroundColor;
+            foreach (var ch in text)
+            {
+                var color = EditorApp.ClassifyColorFor(theme, ch);
+                if (Console.ForegroundColor != color) Console.ForegroundColor = color;
+                Console.Write(ch);
+            }
+            if (Console.ForegroundColor != prev) Console.ForegroundColor = prev;
+        }
+
+        internal static string ReadLineWithInitial(string initial, ConsoleTheme theme)
         {
             var buffer = new StringBuilder(initial);
             int cursor = buffer.Length; // insertion index in buffer
@@ -94,9 +109,23 @@ internal partial record Command
                     view = (view.Length > 1 ? view[..^1] : string.Empty) + '…';
                 }
 
-                // Render view padded to the full content width to clear remnants
+                // Render view padded to the full content width to clear remnants, with per-char colors
                 Console.SetCursorPosition(startLeft, startTop);
-                Console.Write(view.PadRight(contentWidth));
+                var prev = Console.ForegroundColor;
+                int vlen = Math.Min(view.Length, contentWidth);
+                for (int i = 0; i < vlen; i++)
+                {
+                    var ch = view[i];
+                    var color = EditorApp.ClassifyColorFor(theme, ch);
+                    if (Console.ForegroundColor != color) Console.ForegroundColor = color;
+                    Console.Write(ch);
+                }
+                if (vlen < contentWidth)
+                {
+                    if (Console.ForegroundColor != theme.Default) Console.ForegroundColor = theme.Default;
+                    Console.Write(new string(' ', contentWidth - vlen));
+                }
+                if (Console.ForegroundColor != prev) Console.ForegroundColor = prev;
 
                 // Place cursor within the view
                 int cursorCol = startLeft + Math.Min(cursor - scrollStart, contentWidth - 1);

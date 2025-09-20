@@ -124,4 +124,12 @@ internal sealed partial class EditorApp
         if (char.IsLetter(ch)) return Theme.Letters;
         return Theme.Default; // includes whitespace
     }
+    internal static ConsoleColor ClassifyColorFor(ConsoleTheme theme, char ch)
+    {
+        if (ch == '…') return theme.Default; // keep ellipsis neutral
+        if (char.IsDigit(ch)) return theme.Number;
+        if (ControlChars.Contains(ch) || char.IsPunctuation(ch)) return theme.Control;
+        if (char.IsLetter(ch)) return theme.Letters;
+        return theme.Default; // includes whitespace
+    }
 }
