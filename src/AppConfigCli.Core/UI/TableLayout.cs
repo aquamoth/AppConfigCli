@@ -26,7 +26,9 @@ public static class TableLayout
         labelWidth = Math.Clamp(labelMax, minLabel, maxLabel);
 
         // Fixed non-column characters in a row
-        int fixedChars = includeValue ? 12 : 10; // e.g., indices, state, separators
+        // Index column is right-aligned to 3 chars minimum, expands for 4+ digits
+        int indexDigits = Math.Max(3, items.Count.ToString().Length);
+        int fixedChars = includeValue ? (indexDigits + 9) : (indexDigits + 7); // indices + state + separators
 
         // Available space for key + label (+ value)
         int available = totalWidth - (fixedChars + labelWidth);
@@ -72,4 +74,3 @@ public static class TableLayout
         }
     }
 }
-

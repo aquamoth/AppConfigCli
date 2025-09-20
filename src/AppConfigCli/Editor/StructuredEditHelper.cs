@@ -62,16 +62,6 @@ internal static class StructuredEditHelper
         }
     }
 
-    public static string BuildYamlContent(IEnumerable<Item> visibleItems, string separator)
-    {
-        var flats = visibleItems
-            .Where(i => i.State != ItemState.Deleted)
-            .ToDictionary(i => i.ShortKey, i => i.Value ?? string.Empty, StringComparer.Ordinal);
-        var root = FlatKeyMapper.BuildTree(flats, separator);
-        var ser = new SerializerBuilder().WithNamingConvention(NullNamingConvention.Instance).Build();
-        return ser.Serialize(root);
-    }
-
     public static (bool Ok, string Error, int Created, int Updated, int Deleted) ApplyYamlEdits(string yaml, string separator, List<Item> allItems, IEnumerable<Item> visibleUnderLabel, string? prefix, string? activeLabel)
     {
         try
