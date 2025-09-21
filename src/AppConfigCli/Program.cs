@@ -1265,4 +1265,8 @@ internal sealed partial class EditorApp
         var indices = AppConfigCli.Core.ItemFilter.MapVisibleRangeToSourceIndices(coreList, Label, KeyRegex, start, end, out error);
         return indices;
     }
+
+    // Autocomplete support: list all entries ignoring current prefix/label filters
+    internal Task<IReadOnlyList<CoreConfigEntry>> ListAllEntriesForAutocompleteAsync()
+        => _repo.ListAsync(prefix: null, labelFilter: null);
 }

@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace AppConfigCli;
 
 internal partial record Command
@@ -19,9 +21,8 @@ internal partial record Command
             if (args.Length == 0)
             {
                 Console.WriteLine("Enter new prefix (empty for all keys):");
-                Console.Write("> ");
-                var input = Console.ReadLine();
-                newPrefix = input is null ? string.Empty : input.Trim();
+                var prefixes = await BuildExistingPrefixesAsync(app).ConfigureAwait(false);
+                newPrefix = ReadLineWithAutocomplete(prefixes, app.Theme) ?? string.Empty;
             }
             else
             {
@@ -31,6 +32,130 @@ internal partial record Command
             app.Prefix = newPrefix; // can be empty string to mean 'all keys'
             await app.LoadAsync();
             return new CommandResult();
+        }
+    }
+
+    private static async Task<HashSet<string>> BuildExistingPrefixesAsync(EditorApp app)
+    {
+        // Build a set of prefixes ending with '/'
+        var set = new HashSet<string>(StringComparer.Ordinal);
+        // Include existing in-memory items (unsaved/new ones)
+        foreach (var it in app.Test_Items)
+        {
+            var key = it.FullKey ?? string.Empty;
+            for (int i = 0; i < key.Length; i++) if (key[i] == '/') set.Add(key[..(i + 1)]);
+        }
+        // Include all entries from the repository, ignoring current filters
+        var all = await app.ListAllEntriesForAutocompleteAsync().ConfigureAwait(false);
+        foreach (var e in all)
+        {
+            var key = e.Key ?? string.Empty;
+            for (int i = 0; i < key.Length; i++) if (key[i] == '/') set.Add(key[..(i + 1)]);
+        }
+        return set;
+    }
+
+    private static string? ReadLineWithAutocomplete(HashSet<string> candidates, ConsoleTheme theme)
+    {
+        var buffer = new StringBuilder();
+        int startLeft, startTop;
+        try { Console.Write("> "); startLeft = Console.CursorLeft; startTop = Console.CursorTop; }
+        catch { startLeft = 0; startTop = 0; }
+
+        var list = candidates.OrderBy(s => s, StringComparer.Ordinal).ToList();
+        int matchIndex = 0;
+        string? currentSuggestion = null;
+        int lastPrinted = 0;
+
+        void UpdateSuggestion()
+        {
+            var typed = buffer.ToString();
+            var matches = list.Where(s => s.StartsWith(typed, StringComparison.Ordinal)).ToList();
+            if (matches.Count == 0)
+            {
+                currentSuggestion = null; matchIndex = 0; return;
+            }
+            if (matchIndex >= matches.Count) matchIndex = 0;
+            if (matchIndex < 0) matchIndex = matches.Count - 1;
+            currentSuggestion = matches[matchIndex];
+        }
+
+        void Render()
+        {
+            var typed = buffer.ToString();
+            string remainder = string.Empty;
+            if (!string.IsNullOrEmpty(currentSuggestion) && currentSuggestion!.StartsWith(typed, StringComparison.Ordinal) && currentSuggestion.Length > typed.Length)
+            {
+                remainder = currentSuggestion.Substring(typed.Length);
+            }
+            try
+            {
+                Console.SetCursorPosition(startLeft, startTop);
+            }
+            catch { }
+            Console.Write(typed);
+            int printed = typed.Length;
+            if (remainder.Length > 0 && theme.Enabled)
+            {
+                var prev = Console.ForegroundColor;
+                var col = ConsoleColor.DarkGray;
+                if (Console.ForegroundColor != col) Console.ForegroundColor = col;
+                Console.Write(remainder);
+                if (Console.ForegroundColor != prev) Console.ForegroundColor = prev;
+                printed += remainder.Length;
+            }
+            // Clear any trailing leftover from previous render
+            if (printed < lastPrinted)
+            {
+                Console.Write(new string(' ', lastPrinted - printed));
+            }
+            // Place cursor back at end of typed input
+            try { Console.SetCursorPosition(startLeft + typed.Length, startTop); } catch { }
+            lastPrinted = printed;
+        }
+
+        UpdateSuggestion();
+        Render();
+        while (true)
+        {
+            var key = Console.ReadKey(intercept: true);
+            if (key.Key == ConsoleKey.Enter)
+            {
+                Console.WriteLine();
+                return buffer.ToString();
+            }
+            if (key.Key == ConsoleKey.Tab)
+            {
+                if (!string.IsNullOrEmpty(currentSuggestion))
+                {
+                    buffer.Clear();
+                    buffer.Append(currentSuggestion);
+                    UpdateSuggestion();
+                    Render();
+                }
+                continue;
+            }
+            if (key.Key == ConsoleKey.UpArrow)
+            {
+                matchIndex--; UpdateSuggestion(); Render(); continue;
+            }
+            if (key.Key == ConsoleKey.DownArrow)
+            {
+                matchIndex++; UpdateSuggestion(); Render(); continue;
+            }
+            if (key.Key == ConsoleKey.Backspace)
+            {
+                if (buffer.Length > 0) { buffer.Remove(buffer.Length - 1, 1); matchIndex = 0; UpdateSuggestion(); Render(); }
+                continue;
+            }
+            if (!char.IsControl(key.KeyChar))
+            {
+                buffer.Append(key.KeyChar);
+                matchIndex = 0;
+                UpdateSuggestion();
+                Render();
+                continue;
+            }
         }
     }
 }
