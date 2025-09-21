@@ -19,7 +19,20 @@ internal partial record Command
         {
             // 1) Prompt for search regex (ESC/Ctrl+C cancels)
             Console.WriteLine("Enter search regex (applies to VALUES only):");
-            var pattern = ReadLineCancelable();
+            Console.Write("> ");
+            var patResult = EditorApp.ReadLineWithPagingCancelable(
+                onRepaint: () =>
+                {
+                    app.Repaint();
+                    Console.WriteLine("Enter search regex (applies to VALUES only):");
+                    Console.Write("> ");
+                    int left, top; try { left = Console.CursorLeft; top = Console.CursorTop; } catch { left = 0; top = 0; }
+                    return (left, top);
+                },
+                onPageUp: () => app.PageUpCommand(),
+                onPageDown: () => app.PageDownCommand()
+            );
+            var pattern = patResult.Cancelled ? null : patResult.Text;
             if (pattern is null) return Task.FromResult(new CommandResult());
             pattern = pattern.Trim();
             if (pattern.Length == 0) return Task.FromResult(new CommandResult());
