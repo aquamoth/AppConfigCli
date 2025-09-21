@@ -40,76 +40,101 @@ internal sealed partial class EditorApp
         // Render header rows under the title with colored values
         RenderFilterHeader(width);
 
-        // Layout calculation via Core UI helper (map UI -> Core items)
-        var layoutMapper = new EditorMappers();
-        var coreVisible = visible.Select(layoutMapper.ToCoreItem).ToList();
-        bool showLabelColumn = Label is null; // Hide label column when label filter is active
-        int keyWidth, labelWidth, valueWidth;
-        if (showLabelColumn)
-        {
-            TableLayout.Compute(width, includeValue, coreVisible, out keyWidth, out labelWidth, out valueWidth);
-        }
-        else
-        {
-            // Compute layout without a label column to free space for key/value
-            const int minKey = 15;
-            const int maxKey = 80;
-            const int minValue = 10;
-            int indexDigits = Math.Max(3, coreVisible.Count.ToString().Length);
-            int fixedChars = includeValue ? (indexDigits + 7) : (indexDigits + 5); // idx + spaces/state + separators before value
-            int available = width - fixedChars;
-            int longestKey = coreVisible.Select(i => i.ShortKey.Length).DefaultIfEmpty(minKey).Max();
-            labelWidth = 0;
-            if (includeValue)
-            {
-                if (available < minKey + minValue)
-                {
-                    available = minKey + minValue; // ensure non-negative allocations
-                }
-                int maxKeyAllowed = Math.Min(maxKey, Math.Max(minKey, available - minValue));
-                keyWidth = Math.Clamp(longestKey, minKey, maxKeyAllowed);
-                valueWidth = Math.Max(1, available - keyWidth);
-                if (valueWidth < minValue)
-                {
-                    int shortage = minValue - valueWidth;
-                    keyWidth = Math.Max(minKey, keyWidth - shortage);
-                    valueWidth = Math.Max(1, available - keyWidth);
-                }
-            }
-            else
-            {
-                keyWidth = Math.Clamp(longestKey, minKey, Math.Min(maxKey, available));
-                valueWidth = 0;
-            }
-        }
-
-        Console.WriteLine(new string('-', width));
-        if (showLabelColumn)
-        {
-            if (includeValue)
-                Console.WriteLine($"Idx  S  {PadColumn("Key", keyWidth)}  {PadColumn("Label", labelWidth)}  Value");
-            else
-                Console.WriteLine($"Idx  S  {PadColumn("Key", keyWidth)}  {PadColumn("Label", labelWidth)}");
-        }
-        else
-        {
-            if (includeValue)
-                Console.WriteLine($"Idx  S  {PadColumn("Key", keyWidth)}  Value");
-            else
-                Console.WriteLine($"Idx  S  {PadColumn("Key", keyWidth)}");
-        }
-        Console.WriteLine(new string('-', width));
-
-        int start = 0;
-        int count = visible.Count;
+        // Determine the current page slice before computing dynamic widths
+        int pageStart = 0;
+        int pageCountItems = visible.Count;
         if (pageCount > 1)
         {
-            start = _pageIndex * pageSize;
-            count = Math.Min(pageSize, Math.Max(0, visible.Count - start));
+            pageStart = _pageIndex * pageSize;
+            pageCountItems = Math.Min(pageSize, Math.Max(0, visible.Count - pageStart));
         }
-        for (int i = 0; i < count; i++)
+
+        // Prepare subset for the current page to compute dynamic widths
+        var pageItems = visible.Skip(pageStart).Take(pageCountItems).ToList();
+        var layoutMapper = new EditorMappers();
+        var coreVisible = pageItems.Select(layoutMapper.ToCoreItem).ToList();
+        bool showLabelColumn = Label is null; // Hide label column when label filter is active
+
+        // Dynamic index width based on the largest visible index on this page
+        int maxIndexValue = pageStart + pageCountItems; // global numbering
+        int indexDigits = Math.Max(1, maxIndexValue.ToString().Length);
+
+        // Compute longest lengths on this page
+        int longestKeyLen = pageItems.Select(i => i.ShortKey.Length).DefaultIfEmpty(1).Max();
+        int longestLabelLen = showLabelColumn ? pageItems.Select(i => (i.Label ?? "(none)").Length).DefaultIfEmpty(1).Max() : 0;
+        int longestValueLen = includeValue ? pageItems.Select(i => (i.Value ?? string.Empty).Replace('\n', ' ').Length).DefaultIfEmpty(1).Max() : 0;
+
+        // Allocate widths so that index fits, status is 1 char, and columns share the rest
+        const int minKey = 15;
+        const int maxKey = 80;
+        const int minLabel = 6;
+        const int maxLabel = 30;
+        const int minValue = 10;
+
+        int sepKey = 1; // one space after status before key
+        int sepLabel = showLabelColumn ? 2 : 0; // between key and label
+        int sepValue = includeValue ? 2 : 0; // before value
+
+        int nonColumn = indexDigits + 1 /*status*/ + sepKey + sepLabel + sepValue;
+        int availableCols = Math.Max(0, width - nonColumn);
+
+        int labelWidth = 0;
+        if (showLabelColumn)
         {
-            var item = visible[start + i];
+            labelWidth = Math.Clamp(longestLabelLen, minLabel, Math.Min(maxLabel, availableCols));
+            availableCols = Math.Max(0, availableCols - labelWidth);
+        }
+
+        int keyWidth, valueWidth;
+        if (includeValue)
+        {
+            // Try to satisfy both key and value based on their longest lengths on the page
+            int desiredKey = Math.Clamp(longestKeyLen, minKey, Math.Min(maxKey, availableCols));
+            int desiredVal = Math.Max(minValue, Math.Min(longestValueLen, Math.Max(0, availableCols - minKey)));
+
+            if (desiredKey + desiredVal <= availableCols)
+            {
+                keyWidth = desiredKey;
+                valueWidth = availableCols - keyWidth; // give remainder to value
+            }
+            else
+            {
+                // Ensure value is reasonably visible, rest to key
+                valueWidth = Math.Min(Math.Max(minValue, availableCols / 3), availableCols);
+                keyWidth = Math.Max(minKey, availableCols - valueWidth);
+            }
+        }
+        else
+        {
+            keyWidth = Math.Clamp(longestKeyLen, minKey, availableCols);
+            valueWidth = 0;
+        }
+
+        // (Old static layout logic removed; using dynamic per-page widths computed above)
+
+        Console.WriteLine(new string('-', width));
+        var idxHeader = "Idx".PadLeft(indexDigits);
+        var header = new System.Text.StringBuilder();
+        header.Append(idxHeader);
+        header.Append(' '); // status slot
+        header.Append(' '); // space before key
+        header.Append(PadColumn("Key", keyWidth));
+        if (showLabelColumn)
+        {
+            header.Append("  ");
+            header.Append(PadColumn("Label", labelWidth));
+        }
+        if (valueWidth > 0)
+        {
+            header.Append("  ");
+            header.Append("Value");
+        }
+        Console.WriteLine(header.ToString());
+        Console.WriteLine(new string('-', width));
+
+        for (int i = 0; i < pageCountItems; i++)
+        {
+            var item = visible[pageStart + i];
             var s = item.State switch
             {
                 ItemState.New => '+',
@@ -123,9 +148,35 @@ internal sealed partial class EditorApp
             var valFull = (item.Value ?? string.Empty).Replace('\n', ' ');
             var valDisp = valueWidth > 0 ? TextTruncation.TruncateFixed(valFull, valueWidth) : string.Empty;
 
-            // Left prefix: index, state
+            // Left prefix: index (dynamic width), status (1 char), then a space
             Console.ForegroundColor = Theme.Default;
-            Console.Write($"{start + i + 1,3}  {s}  ");
+            var idxText = (pageStart + i + 1).ToString().PadLeft(indexDigits);
+            bool isDirty = s != ' ';
+            if (Theme.Enabled && isDirty)
+            {
+                var prev = Console.ForegroundColor;
+                var col = ClassifyColor(s); // use same color as status indicator
+                if (Console.ForegroundColor != col) Console.ForegroundColor = col;
+                Console.Write(idxText);
+                if (Console.ForegroundColor != prev) Console.ForegroundColor = prev;
+            }
+            else
+            {
+                Console.Write(idxText);
+            }
+            if (Theme.Enabled)
+            {
+                var prev = Console.ForegroundColor;
+                var col = ClassifyColor(s);
+                if (Console.ForegroundColor != col) Console.ForegroundColor = col;
+                Console.Write(s);
+                if (Console.ForegroundColor != Theme.Default) Console.ForegroundColor = Theme.Default;
+            }
+            else
+            {
+                Console.Write(s);
+            }
+            Console.Write(' ');
             // Key (colored)
             if (Theme.Enabled) WriteColoredFixed(keyDisp, keyWidth); else Console.Write(PadColumn(keyDisp, keyWidth));
             Console.ForegroundColor = Theme.Default;
