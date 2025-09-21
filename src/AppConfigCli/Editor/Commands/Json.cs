@@ -6,8 +6,8 @@ internal partial record Command
     {
         public static CommandSpec Spec => new CommandSpec
         {
-            Aliases = new[] { "json" },
-            Summary = "json [sep]",
+            Aliases = new[] { "j", "json" },
+            Summary = "j|json [sep]",
             Usage = "Usage: json [separator] (default ':')",
             Description = "Edit visible items as nested JSON split by <sep> (default ':')",
             Parser = args =>

@@ -8,10 +8,10 @@ internal partial record Command
     {
         public static CommandSpec Spec => new CommandSpec
         {
-            Aliases = new[] { "g", "grep" },
-            Summary = "g|grep [regex]",
-            Usage = "Usage: g|grep [regex]",
-            Description = "Set key regex filter (no arg clears)",
+            Aliases = new[] { "/", "g", "grep" },
+            Summary = "/|grep [regex]",
+            Usage = "Usage: /|grep [regex]",
+            Description = "Filter keys by regular expression (case insensitive). Leave empty to clear the filter.",
             Parser = args => args.Length == 0
                 ? (true, new Grep(null, Clear: true), null)
                 : (true, new Grep(string.Join(' ', args), Clear: false), null)

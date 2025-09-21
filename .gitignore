@@ -20,4 +20,5 @@ Thumbs.db
 coveragereport/
 tests/
 publish/
-/*.log
+*.log
+.binlog

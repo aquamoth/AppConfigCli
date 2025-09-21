@@ -9,8 +9,8 @@ internal partial record Command
     {
         public static CommandSpec Spec => new CommandSpec
         {
-            Aliases = new[] { "yaml" },
-            Summary = "yaml [sep]",
+            Aliases = new[] { "y", "yaml" },
+            Summary = "y|yaml [sep]",
             Usage = "Usage: yaml [separator] (default ':')",
             Description = "Edit visible items as nested YAML split by <sep> (default ':')",
             Parser = args =>
