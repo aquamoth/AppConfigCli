@@ -28,26 +28,6 @@ internal partial record Command
                 newPrefix = string.Join(' ', args).Trim();
             }
 
-            if (app.HasPendingChanges(out var newCount, out var modCount, out var delCount))
-            {
-                Console.WriteLine($"You have unsaved changes: +{newCount} new, *{modCount} modified, -{delCount} deleted.");
-                Console.WriteLine("Change prefix now?");
-                Console.WriteLine("  S) Save and change");
-                Console.WriteLine("  Q) Change without saving (discard)");
-                Console.WriteLine("  C) Cancel");
-                while (true)
-                {
-                    Console.Write("> ");
-                    var choice = (Console.ReadLine() ?? string.Empty).Trim().ToLowerInvariant();
-                    if (choice.Length == 0) continue;
-                    var ch = choice[0];
-                    if (ch == 'c') return new CommandResult();
-                    if (ch == 's') { await app.SaveAsync(pause: false); break; }
-                    if (ch == 'q') { /* discard */ break; }
-                    Console.WriteLine("Please enter S, Q, or C.");
-                }
-            }
-
             app.Prefix = newPrefix; // can be empty string to mean 'all keys'
             await app.LoadAsync();
             return new CommandResult();
