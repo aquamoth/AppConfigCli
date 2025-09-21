@@ -1024,6 +1024,7 @@ internal sealed partial class EditorApp
         Action onPageDown)
     {
         var buffer = new StringBuilder();
+        int cursor = 0; // insertion index
         int startLeft, startTop;
         try { startLeft = Console.CursorLeft; startTop = Console.CursorTop; }
         catch { startLeft = 0; startTop = 0; }
@@ -1035,7 +1036,7 @@ internal sealed partial class EditorApp
             Console.Write(text);
             // Clear any trailing remnants by writing a space and moving back
             Console.Write(' ');
-            try { Console.SetCursorPosition(startLeft + text.Length, startTop); } catch { }
+            try { Console.SetCursorPosition(startLeft + cursor, startTop); } catch { }
         }
 
         Render();
@@ -1072,6 +1073,89 @@ internal sealed partial class EditorApp
                 continue;
             }
 
+            // Navigation keys
+            if (key.Key == ConsoleKey.LeftArrow)
+            {
+                if (cursor > 0) { cursor--; Render(); }
+                continue;
+            }
+            if (key.Key == ConsoleKey.RightArrow)
+            {
+                if (cursor < buffer.Length) { cursor++; Render(); }
+                continue;
+            }
+            if (key.Key == ConsoleKey.Home)
+            {
+                cursor = 0; Render();
+                continue;
+            }
+            if (key.Key == ConsoleKey.End)
+            {
+                cursor = buffer.Length; Render();
+                continue;
+            }
+
+            // Word-wise navigation/deletion (Ctrl + arrows/backspace/delete)
+            static bool IsWordChar(char c) => char.IsLetterOrDigit(c);
+            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.LeftArrow)
+            {
+                if (cursor > 0)
+                {
+                    int i = cursor - 1;
+                    while (i >= 0 && !IsWordChar(i < buffer.Length ? buffer[i] : ' ')) i--;
+                    while (i >= 0 && IsWordChar(buffer[i])) i--;
+                    cursor = Math.Max(0, i + 1);
+                    Render();
+                }
+                continue;
+            }
+            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.RightArrow)
+            {
+                if (cursor < buffer.Length)
+                {
+                    int i = cursor;
+                    while (i < buffer.Length && !IsWordChar(buffer[i])) i++;
+                    while (i < buffer.Length && IsWordChar(buffer[i])) i++;
+                    cursor = i;
+                    Render();
+                }
+                continue;
+            }
+            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.Backspace)
+            {
+                if (cursor > 0)
+                {
+                    int start = cursor - 1, i = start;
+                    while (i >= 0 && !IsWordChar(buffer[i])) i--;
+                    while (i >= 0 && IsWordChar(buffer[i])) i--;
+                    int delFrom = Math.Max(0, i + 1);
+                    int delLen = cursor - delFrom;
+                    if (delLen > 0)
+                    {
+                        buffer.Remove(delFrom, delLen);
+                        cursor = delFrom;
+                        Render();
+                    }
+                }
+                continue;
+            }
+            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.Delete)
+            {
+                if (cursor < buffer.Length)
+                {
+                    int i = cursor;
+                    while (i < buffer.Length && !IsWordChar(buffer[i])) i++;
+                    while (i < buffer.Length && IsWordChar(buffer[i])) i++;
+                    int delLen = Math.Max(0, i - cursor);
+                    if (delLen > 0)
+                    {
+                        buffer.Remove(cursor, delLen);
+                        Render();
+                    }
+                }
+                continue;
+            }
+
             if (key.Key == ConsoleKey.Enter)
             {
                 Console.WriteLine();
@@ -1079,16 +1163,27 @@ internal sealed partial class EditorApp
             }
             if (key.Key == ConsoleKey.Backspace)
             {
-                if (buffer.Length > 0)
+                if (cursor > 0)
                 {
-                    buffer.Remove(buffer.Length - 1, 1);
+                    buffer.Remove(cursor - 1, 1);
+                    cursor--;
+                    Render();
+                }
+                continue;
+            }
+            if (key.Key == ConsoleKey.Delete)
+            {
+                if (cursor < buffer.Length)
+                {
+                    buffer.Remove(cursor, 1);
                     Render();
                 }
                 continue;
             }
             if (!char.IsControl(key.KeyChar))
             {
-                buffer.Append(key.KeyChar);
+                buffer.Insert(cursor, key.KeyChar);
+                cursor++;
                 Render();
                 continue;
             }
