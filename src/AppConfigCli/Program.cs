@@ -573,6 +573,29 @@ internal sealed partial class EditorApp
         Theme = theme ?? ConsoleTheme.Load();
     }
 
+    // Paging state
+    private int _pageIndex = 0; // zero-based
+
+    private void PageUp()
+    {
+        var total = GetVisibleItems().Count;
+        int pageSize, pageCount;
+        try { int h = Console.WindowHeight; ComputePaging(h, total, out pageSize, out pageCount); }
+        catch { ComputePaging(40, total, out pageSize, out pageCount); }
+        if (pageCount <= 1) { _pageIndex = 0; return; }
+        _pageIndex = Math.Max(0, _pageIndex - 1);
+    }
+
+    private void PageDown()
+    {
+        var total = GetVisibleItems().Count;
+        int pageSize, pageCount;
+        try { int h = Console.WindowHeight; ComputePaging(h, total, out pageSize, out pageCount); }
+        catch { ComputePaging(40, total, out pageSize, out pageCount); }
+        if (pageCount <= 1) { _pageIndex = 0; return; }
+        _pageIndex = Math.Min(pageCount - 1, _pageIndex + 1);
+    }
+
     public async Task LoadAsync()
     {
         // Build server snapshot
@@ -601,8 +624,18 @@ internal sealed partial class EditorApp
             while (true)
             {
                 Render();
-                Console.Write("> ");
-                var (ctrlC, input) = ReadLineOrCtrlC(CommandHistory);
+                var (ctrlC, input) = ReadLineOrCtrlC(
+                    CommandHistory,
+                    onRepaint: () =>
+                    {
+                        Render();
+                        int left, top;
+                        try { left = Console.CursorLeft; top = Console.CursorTop; }
+                        catch { left = 0; top = 0; }
+                        return (left, top);
+                    },
+                    onPageUp: () => PageUp(),
+                    onPageDown: () => PageDown());
                 if (ctrlC)
                 {
                     var quit = new Command.Quit();
@@ -642,7 +675,11 @@ internal sealed partial class EditorApp
     }
 
     // Command prompt line editor with history, cursor movement, word jumps, delete/backspace, ESC-to-clear, and instant Ctrl+C
-    internal static (bool CtrlC, string? Text) ReadLineOrCtrlC(List<string>? history = null)
+    internal static (bool CtrlC, string? Text) ReadLineOrCtrlC(
+        List<string>? history = null,
+        Func<(int Left, int Top)>? onRepaint = null,
+        Action? onPageUp = null,
+        Action? onPageDown = null)
     {
         var buffer = new StringBuilder();
         int cursor = 0; // insertion index in buffer
@@ -735,6 +772,22 @@ internal sealed partial class EditorApp
             {
                 Console.WriteLine();
                 return (false, buffer.ToString());
+            }
+            // Paging hotkeys (PgUp/PgDn) trigger a repaint of the item list but keep editing the prompt
+            if (key.Key == ConsoleKey.PageUp || key.Key == ConsoleKey.PageDown)
+            {
+                try
+                {
+                    if (key.Key == ConsoleKey.PageUp) onPageUp?.Invoke(); else onPageDown?.Invoke();
+                    if (onRepaint is not null)
+                    {
+                        var pos = onRepaint();
+                        startLeft = pos.Left; startTop = pos.Top;
+                    }
+                }
+                catch { }
+                Render();
+                continue;
             }
             if (key.Key == ConsoleKey.Escape)
             {

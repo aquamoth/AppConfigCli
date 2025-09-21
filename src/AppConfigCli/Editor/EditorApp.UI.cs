@@ -18,11 +18,17 @@ internal sealed partial class EditorApp
         var prefixDisplay = string.IsNullOrWhiteSpace(Prefix) ? "(none)" : Prefix;
         var labelDisplay = Label is null ? "(any)" : (Label.Length == 0 ? "(none)" : Label);
         var keyRegexDisplay = string.IsNullOrEmpty(KeyRegexPattern) ? "(none)" : KeyRegexPattern;
-        Console.WriteLine($"Prefix: '{prefixDisplay}'   Label filter: '{labelDisplay}'   Key regex: '{keyRegexDisplay}'   Auth: {_authModeDesc}");
-
         var width = GetWindowWidth();
+        var height = GetWindowHeight();
         bool includeValue = width >= 60; // minimal width for value column
         var visible = GetVisibleItems();
+
+        // Compute paging
+        ComputePaging(height, visible.Count, out var pageSize, out var pageCount);
+        if (_pageIndex >= pageCount) _pageIndex = Math.Max(0, pageCount - 1);
+        if (_pageIndex < 0) _pageIndex = 0;
+        var pageInfo = pageCount > 1 ? $"   PAGE {_pageIndex + 1}/{pageCount}" : string.Empty;
+        Console.WriteLine($"Prefix: '{prefixDisplay}'   Label filter: '{labelDisplay}'   Key regex: '{keyRegexDisplay}'   Auth: {_authModeDesc}{pageInfo}");
 
         // Layout calculation via Core UI helper (map UI -> Core items)
         var layoutMapper = new EditorMappers();
@@ -36,9 +42,16 @@ internal sealed partial class EditorApp
             Console.WriteLine($"Idx  S  {PadColumn("Key", keyWidth)}  {PadColumn("Label", labelWidth)}");
         Console.WriteLine(new string('-', width));
 
-        for (int i = 0; i < visible.Count; i++)
+        int start = 0;
+        int count = visible.Count;
+        if (pageCount > 1)
         {
-            var item = visible[i];
+            start = _pageIndex * pageSize;
+            count = Math.Min(pageSize, Math.Max(0, visible.Count - start));
+        }
+        for (int i = 0; i < count; i++)
+        {
+            var item = visible[start + i];
             var s = item.State switch
             {
                 ItemState.New => '+',
@@ -54,7 +67,7 @@ internal sealed partial class EditorApp
 
             // Left prefix: index, state
             Console.ForegroundColor = Theme.Default;
-            Console.Write($"{i + 1,3}  {s}  ");
+            Console.Write($"{start + i + 1,3}  {s}  ");
             // Key (colored)
             if (Theme.Enabled) WriteColoredFixed(keyDisp, keyWidth); else Console.Write(PadColumn(keyDisp, keyWidth));
             Console.ForegroundColor = Theme.Default;
@@ -71,8 +84,30 @@ internal sealed partial class EditorApp
             Console.WriteLine();
         }
 
-        Console.WriteLine();
-        Console.WriteLine(CommandParser.GetSummaryLine());
+        // Single-line prompt hint to avoid wrapping on narrow consoles
+        Console.Write("Command (h for help)> ");
+    }
+
+    private static int GetWindowHeight()
+    {
+        try
+        {
+            var h = Console.WindowHeight;
+            return Math.Max(10, Math.Min(h, 200));
+        }
+        catch
+        {
+            return 40;
+        }
+    }
+
+    private void ComputePaging(int windowHeight, int totalItems, out int pageSize, out int pageCount)
+    {
+        // Reserve lines: header (2) + separators/header row (3) + footer (2) + prompt (1)
+        int reserved = 2 + 3 + 2 + 1;
+        int maxRows = Math.Max(1, windowHeight - reserved);
+        pageSize = maxRows;
+        pageCount = Math.Max(1, (int)Math.Ceiling(totalItems / (double)pageSize));
     }
 
     private static int GetWindowWidth()
