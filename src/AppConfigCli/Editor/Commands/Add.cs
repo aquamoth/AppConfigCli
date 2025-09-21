@@ -91,7 +91,7 @@ internal partial record Command
                 Console.WriteLine();
                 return buffer.ToString();
             }
-            if (key.Key == ConsoleKey.Escape)
+            if (key.Key == ConsoleKey.Escape || ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.C))
             {
                 Console.WriteLine();
                 return null; // cancel

@@ -139,6 +139,11 @@ internal partial record Command
             while (true)
             {
                 var key = Console.ReadKey(intercept: true);
+                if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.C)
+                {
+                    Console.WriteLine();
+                    return null; // cancel like ESC
+                }
                 if (key.Key == ConsoleKey.Enter)
                 {
                     Console.WriteLine();
