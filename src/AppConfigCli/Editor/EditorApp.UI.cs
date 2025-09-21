@@ -88,20 +88,21 @@ internal sealed partial class EditorApp
         int keyWidth, valueWidth;
         if (includeValue)
         {
-            // Try to satisfy both key and value based on their longest lengths on the page
-            int desiredKey = Math.Clamp(longestKeyLen, minKey, Math.Min(maxKey, availableCols));
-            int desiredVal = Math.Max(minValue, Math.Min(longestValueLen, Math.Max(0, availableCols - minKey)));
+            int keyNeeded = Math.Clamp(longestKeyLen, minKey, maxKey);
+            int valueNeeded = Math.Max(minValue, longestValueLen);
 
-            if (desiredKey + desiredVal <= availableCols)
+            if (availableCols >= keyNeeded + valueNeeded)
             {
-                keyWidth = desiredKey;
-                valueWidth = availableCols - keyWidth; // give remainder to value
+                // Everything fits fully; give all extra space to value
+                keyWidth = keyNeeded;
+                valueWidth = Math.Max(1, availableCols - keyWidth);
             }
             else
             {
-                // Ensure value is reasonably visible, rest to key
-                valueWidth = Math.Min(Math.Max(minValue, availableCols / 3), availableCols);
-                keyWidth = Math.Max(minKey, availableCols - valueWidth);
+                // Not enough for both fully — cap key at needed and reserve at least min for value
+                int maxKeyGivenValueMin = Math.Max(1, availableCols - minValue);
+                keyWidth = Math.Min(keyNeeded, maxKeyGivenValueMin);
+                valueWidth = Math.Max(1, availableCols - keyWidth);
             }
         }
         else
@@ -205,7 +206,7 @@ internal sealed partial class EditorApp
         try
         {
             var h = Console.WindowHeight;
-            return Math.Max(10, Math.Min(h, 200));
+            return Math.Max(10, h);
         }
         catch
         {
@@ -228,7 +229,7 @@ internal sealed partial class EditorApp
         {
             var w = Console.WindowWidth;
             // Allow narrow widths; we handle hiding columns below thresholds
-            return Math.Max(20, Math.Min(w, 240));
+            return Math.Max(20, w);
         }
         catch
         {
