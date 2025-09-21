@@ -549,7 +549,7 @@ internal sealed partial class EditorApp
     private readonly AppConfigCli.Core.IConfigRepository _repo;
     private readonly string _authModeDesc;
     internal readonly Func<Task>? WhoAmI;
-    
+
 
     internal string? Prefix { get; set; }
     internal string? Label { get; set; }
@@ -1266,7 +1266,66 @@ internal sealed partial class EditorApp
         return indices;
     }
 
-    // Autocomplete support: list all entries ignoring current prefix/label filters
-    internal Task<IReadOnlyList<CoreConfigEntry>> ListAllEntriesForAutocompleteAsync()
-        => _repo.ListAsync(prefix: null, labelFilter: null);
+    // Cached prefix candidates built from all repository keys plus current in-memory items
+    private List<string>? _prefixCache;
+    internal void InvalidatePrefixCache()
+    {
+        _prefixCache = null;
+    }
+
+    internal async Task<IReadOnlyList<string>> GetPrefixCandidatesAsync()
+    {
+        if (_prefixCache is not null)
+            return _prefixCache;
+
+        var set = new HashSet<string>(StringComparer.Ordinal);
+
+        // Include in-memory items (unsaved/new)
+        foreach (var it in Items)
+        {
+            if (it.FullKey != null)
+            {
+                var index = it.FullKey.IndexOf('/');
+                if (index > 0) set.Add(it.FullKey[..(index + 1)]);
+            }
+        }
+
+        // Include all repository entries (ignoring filters)
+        //TODO: We could filter by Label, if we invalidate the cache on label change
+        var allKeys = await _repo.FetchKeysAsync(prefix: null, labelFilter: null).ConfigureAwait(false);
+        foreach (var key in allKeys)
+        {
+            var index = key.IndexOf('/');
+            if (index > 0)
+            {
+                set.Add(key[..(index + 1)]);
+            }
+        }
+
+        _prefixCache = [.. set.OrderBy(s => s, StringComparer.Ordinal)];
+        return _prefixCache;
+    }
+
+    internal bool TryAddPrefixFromKey(string key)
+    {
+        if (_prefixCache is null)
+            return false; // cache not built yet
+
+        if (string.IsNullOrEmpty(key))
+            return false; // no key => no prefix
+
+        var keyIndex = key.IndexOf('/');
+        if (keyIndex <= 0)
+            return false; // no prefix
+
+        var prefix = key[..(keyIndex + 1)];
+
+        var prefixIndex = _prefixCache.BinarySearch(prefix, StringComparer.Ordinal);
+        if (prefixIndex >= 0)
+            return false; // already present
+
+        // insert prefix in sorted order
+        _prefixCache.Insert(~prefixIndex, prefix);
+        return true;
+    }
 }

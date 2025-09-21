@@ -13,6 +13,36 @@ internal sealed class AzureAppConfigRepository : IConfigRepository
         _client = client;
     }
 
+    public async Task<HashSet<string>> FetchKeysAsync(string? prefix, string? labelFilter, CancellationToken stoppingToken = default)
+    {
+        var selector = new SettingSelector
+        {
+            KeyFilter = string.IsNullOrWhiteSpace(prefix) ? "*" : prefix + "*",
+            LabelFilter = Core.LabelFilter.ForSelector(labelFilter),
+            Fields = SettingFields.Key
+        };
+
+        var set = new HashSet<string>();
+
+        CancellationTokenSource timeout = new(TimeSpan.FromSeconds(5));
+        var cts = CancellationTokenSource.CreateLinkedTokenSource(stoppingToken, timeout.Token);
+        try
+        {
+            await foreach (var s in _client.GetConfigurationSettingsAsync(selector, cts.Token))
+            {
+                set.Add(s.Key);
+            }
+        }
+        catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+        {
+            // Timeout - Likely a 429 from the server due to throttling
+            //TODO: Can we identify a 429 specifically?
+            //TODO: We should log this, when we have logging support
+        }
+
+        return set;
+    }
+
     public async Task<IReadOnlyList<ConfigEntry>> ListAsync(string? prefix, string? labelFilter, CancellationToken ct = default)
     {
         var selector = new SettingSelector

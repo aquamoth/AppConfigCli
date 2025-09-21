@@ -14,6 +14,9 @@ internal partial record Command
         };
         public override async Task<CommandResult> ExecuteAsync(EditorApp app)
         {
+            //We invalidate the prefix cache to ensure we dont have a stale prefix cache
+            app.InvalidatePrefixCache();
+
             await app.LoadAsync();
             return new CommandResult();
         }

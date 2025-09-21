@@ -16,12 +16,12 @@ internal partial record Command
         };
         public override async Task<CommandResult> ExecuteAsync(EditorApp app)
         {
-            var args = Prompt ? System.Array.Empty<string>() : new[] { Value ?? string.Empty };
+            string[] args = Prompt ? [] : [Value ?? string.Empty];
             string? newPrefix = null;
             if (args.Length == 0)
             {
                 Console.WriteLine("Enter new prefix (empty for all keys):");
-                var prefixes = await BuildExistingPrefixesAsync(app).ConfigureAwait(false);
+                var prefixes = await app.GetPrefixCandidatesAsync().ConfigureAwait(false);
                 var typed = ReadLineWithAutocomplete(prefixes, app.Theme);
                 if (typed is null) return new CommandResult(); // ESC cancels
                 newPrefix = typed;
@@ -37,34 +37,13 @@ internal partial record Command
         }
     }
 
-    private static async Task<HashSet<string>> BuildExistingPrefixesAsync(EditorApp app)
-    {
-        // Build a set of prefixes ending with '/'
-        var set = new HashSet<string>(StringComparer.Ordinal);
-        // Include existing in-memory items (unsaved/new ones)
-        foreach (var it in app.Test_Items)
-        {
-            var key = it.FullKey ?? string.Empty;
-            for (int i = 0; i < key.Length; i++) if (key[i] == '/') set.Add(key[..(i + 1)]);
-        }
-        // Include all entries from the repository, ignoring current filters
-        var all = await app.ListAllEntriesForAutocompleteAsync().ConfigureAwait(false);
-        foreach (var e in all)
-        {
-            var key = e.Key ?? string.Empty;
-            for (int i = 0; i < key.Length; i++) if (key[i] == '/') set.Add(key[..(i + 1)]);
-        }
-        return set;
-    }
-
-    private static string? ReadLineWithAutocomplete(HashSet<string> candidates, ConsoleTheme theme)
+    private static string? ReadLineWithAutocomplete(IReadOnlyCollection<string> candidates, ConsoleTheme theme)
     {
         var buffer = new StringBuilder();
         int startLeft, startTop;
         try { Console.Write("> "); startLeft = Console.CursorLeft; startTop = Console.CursorTop; }
         catch { startLeft = 0; startTop = 0; }
 
-        var list = candidates.OrderBy(s => s, StringComparer.Ordinal).ToList();
         int matchIndex = 0;
         string? currentSuggestion = null;
         int lastPrinted = 0;
@@ -72,7 +51,7 @@ internal partial record Command
         void UpdateSuggestion()
         {
             var typed = buffer.ToString();
-            var matches = list.Where(s => s.StartsWith(typed, StringComparison.Ordinal)).ToList();
+            var matches = candidates.Where(s => s.StartsWith(typed, StringComparison.Ordinal)).ToList();
             if (matches.Count == 0)
             {
                 currentSuggestion = null; matchIndex = 0; return;

@@ -6,6 +6,7 @@ namespace AppConfigCli.Core;
 
 public interface IConfigRepository
 {
+    Task<HashSet<string>> FetchKeysAsync(string? prefix, string? labelFilter, CancellationToken ct = default);
     Task<IReadOnlyList<ConfigEntry>> ListAsync(string? prefix, string? labelFilter, CancellationToken ct = default);
     Task UpsertAsync(ConfigEntry entry, CancellationToken ct = default);
     Task DeleteAsync(string key, string? label, CancellationToken ct = default);

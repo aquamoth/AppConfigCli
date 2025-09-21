@@ -68,6 +68,13 @@ internal partial record Command
                 State = ItemState.New
             });
             app.Items.Sort(EditorApp.CompareItems);
+
+            if (string.IsNullOrEmpty(app.Prefix))
+            {
+                // Invalidate prefix cache so autocomplete sees the added new prefix
+                app.TryAddPrefixFromKey(k);
+            }
+
             return Task.FromResult(new CommandResult());
         }
     }
