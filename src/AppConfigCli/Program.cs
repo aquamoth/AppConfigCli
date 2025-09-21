@@ -20,6 +20,8 @@ internal class Program
 {
     private static async Task<int> Main(string[] args)
     {
+        Console.OutputEncoding = Encoding.UTF8;
+
         var options = ParseArgs(args);
         if (options.ShowVersion)
         {
