@@ -69,9 +69,7 @@ internal partial record Command
                 }
                 app.ConsolidateDuplicates();
                 app.Items.Sort(EditorApp.CompareItems);
-                Console.WriteLine($"JSON edit applied for label [{(app.Label?.Length == 0 ? "(none)" : app.Label) ?? "(any)"}]: {cJ} added, {uJ} updated, {dJ} deleted.");
-                Console.WriteLine("Press Enter to continue...");
-                Console.ReadLine();
+                // No summary/pause on success per UX request
                 return new CommandResult();
 
 

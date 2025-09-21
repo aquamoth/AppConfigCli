@@ -66,9 +66,7 @@ internal partial record Command
                 }
             }
 
-            Console.WriteLine($"Deleted selection: removed {removedNew} new item(s), marked {markedExisting} existing item(s) for deletion.");
-            Console.WriteLine("Press Enter to continue...");
-            Console.ReadLine();
+            // No summary/pause on success per UX request
             return Task.FromResult(new CommandResult());
         }
     }
