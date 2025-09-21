@@ -40,6 +40,14 @@ internal static class CommandParser
             return true;
         }
 
+        // Special-case: '/' grep shortcut accepts pattern immediately without a space
+        if (trimmed.StartsWith("/", StringComparison.Ordinal))
+        {
+            var pattern = trimmed.Length > 1 ? trimmed[1..].TrimStart() : null;
+            command = new Command.Grep(pattern, Clear: string.IsNullOrWhiteSpace(pattern));
+            return true;
+        }
+
         var parts = trimmed.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length == 0) { error = ""; return false; }
 
