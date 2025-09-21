@@ -6,22 +6,28 @@ namespace AppConfigCli;
 
 internal partial record Command
 {
-    public sealed record Add() : Command
+    public sealed record Add(string? Key, bool Prompt) : Command
     {
         public static CommandSpec Spec => new CommandSpec
         {
             Aliases = new[] { "a", "add" },
-            Summary = "a|add",
-            Usage = "Usage: a|add",
+            Summary = "a|add [key]",
+            Usage = "Usage: a|add [key]",
             Description = "Add a new key under the current prefix",
-            Parser = args => (true, new Add(), null)
+            Parser = args => args.Length == 0
+                ? (true, new Add(null, Prompt: true), null)
+                : (true, new Add(string.Join(' ', args), Prompt: false), null)
         };
 
         public override Task<CommandResult> ExecuteAsync(EditorApp app)
         {
-            Console.WriteLine("Enter new key (relative to prefix):");
-            Console.Write("> ");
-            var k = Console.ReadLine();
+            string? k = Key;
+            if (Prompt)
+            {
+                Console.WriteLine("Enter new key (relative to prefix):");
+                Console.Write("> ");
+                k = Console.ReadLine();
+            }
             if (string.IsNullOrWhiteSpace(k)) return Task.FromResult(new CommandResult());
             k = k!.Trim();
 
