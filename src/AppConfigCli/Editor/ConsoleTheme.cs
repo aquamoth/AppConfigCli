@@ -7,6 +7,7 @@ internal sealed class ConsoleTheme
     public ConsoleColor Number { get; init; }
     public ConsoleColor Letters { get; init; }
     public bool Enabled { get; init; } = true;
+    public bool IsDefaultPreset { get; init; } = false;
 
     public ConsoleTheme(ConsoleColor @default, ConsoleColor control, ConsoleColor number, ConsoleColor letters)
     {
@@ -56,7 +57,7 @@ internal sealed class ConsoleTheme
         {
             case "default":
                 // UI default = fallbackDefault, letters = Yellow, control = Red, numbers = Green
-                return new ConsoleTheme(fallbackDefault, ConsoleColor.Red, ConsoleColor.Green, ConsoleColor.Yellow);
+                return new ConsoleTheme(fallbackDefault, ConsoleColor.Red, ConsoleColor.Green, ConsoleColor.Yellow) { IsDefaultPreset = true };
             case "mono":
             case "monochrome":
                 return new ConsoleTheme(fallbackDefault, fallbackDefault, fallbackDefault, fallbackDefault);

@@ -64,7 +64,7 @@ Build/Run Quick Start
   - `dotnet run --project src/AppConfigCli -- --prefix app:settings: --auth device`
   - Or force endpoint: `--endpoint https://<name>.azconfig.io` or `--endpoint <name>`
   - Optional: `--tenant <tenant-guid>`
-- Tests: `dotnet test -v minimal` (Core + App test projects; zero warnings on build)
+- Tests: `dotnet test AppConfigCli.sln --nologo --verbosity minimal` (Core + App test projects; zero warnings on build)
 
 Design Highlights
 - Item state machine: Unchanged, Modified, New, Deleted (Core + UI models mapped via Mapperly).
@@ -104,7 +104,7 @@ Repo Pointers
 
 How to Resume Quickly
 1) `dotnet build AppConfigCli.sln`
-2) `dotnet test -v minimal` (should be all green, zero build warnings)
+2) `dotnet test AppConfigCli.sln --nologo --verbosity minimal` (should be all green, zero build warnings)
 3) Run with your preferred auth:
    - ConnStr: set `APP_CONFIG_CONNECTION_STRING` → `dotnet run --project src/AppConfigCli -- --prefix <prefix>`
    - AAD: `dotnet run --project src/AppConfigCli -- --prefix <prefix> --auth device` and select a store
