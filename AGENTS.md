@@ -3,7 +3,7 @@ Project: Keyboard-first Azure App Configuration CLI (C# .NET 9)
 Goal
 - Provide a fast, cross-platform, keyboard-only CLI to browse, edit, copy, and manage key/values in Azure App Configuration under a given prefix ("section"), with label awareness and safe merging back to Azure.
 
-Current State (2025-09-19)
+Current State (2025-09-21)
 - Tech: .NET 9 console app in `src/AppConfigCli` with core domain in `src/AppConfigCli.Core`.
 - Auth:
   - Connection string via `APP_CONFIG_CONNECTION_STRING` (RW keys).
@@ -14,21 +14,27 @@ Current State (2025-09-19)
   - Normalizes shorthand endpoints (e.g., `sh-app-config` -> `https://sh-app-config.azconfig.io`).
 
 Core Features
-- List keys for `--prefix` with optional `--label` filter; shows per-row Label column.
+- List keys for `--prefix` with optional `--label` filter; hides the Label column when a label filter is active (more room for Key/Value).
 - Keyboard-only command loop; no mouse needed.
 - Inline value editor with initial text, arrow/home/end navigation, non-wrapping horizontal viewport and single-char ellipses.
-- Dynamic table layout that adapts to console width; hides Value column on very narrow screens (<60 cols).
+- Dynamic table layout that adapts to console width; hides Value column on very narrow screens (<60 cols). Per-page column sizing: index width based on visible indices, key/label/value sized from the longest values visible on the page; spare width flows to Value.
 - Sorting: by ShortKey, then Label.
-- Add: prompts Key first, then Label (uses active filter if set); prevents same-label duplicates.
-- Edit: e|edit <n> edits value; state transitions: Unchanged/Modified.
+- Add: `a|add [key]` prompts Key (if omitted) then Label (uses active filter if set); prevents same-label duplicates; ESC/Ctrl+C cancels at any prompt.
+- Edit: Numeric edit — typing `<n>` edits value of item `n`; state transitions: Unchanged/Modified; ESC/Ctrl+C cancels.
 - Delete: d|delete <n> [m] supports ranges; removes New rows immediately, marks existing as Deleted; prints summary for ranges.
 - Undo: u|undo <n> [m]|all supports range or “all”; removes New, restores Deleted/Modified to Unchanged; prints summary.
 - Copy: c|copy <n> [m] copies a range from current label to a target label; then switches filter to target; prints created/updated summary.
 - Label filter: l|label [value] sets/clears at runtime (no arg clears). Changing label reloads.
-- Reload: r|reload fetches from Azure and reconciles with pending local edits (Unchanged/Modified/New rules handled by Core `AppStateReconciler`).
+- Reload: r|reload fetches from Azure and reconciles with pending local edits (Unchanged/Modified/New rules handled by Core `AppStateReconciler`). Auto-invalidate prefix cache.
 - Save: s|save upserts Modified/New and deletes Deleted; prints summary (`ChangeApplier`).
 - Safe quit: q|quit|exit warns on unsaved changes; offers Save+Quit, Quit without saving, or Cancel.
-- WhoAmI: w|whoami prints token claims (tid/oid/upn/appid) and endpoint in AAD mode.
+- WhoAmI: whoami prints token claims (tid/oid/upn/appid) and endpoint in AAD mode.
+- Grep: Primary shortcut `/` (no space required, e.g. `/user:`). Full `grep` and hidden shortcut `g` require a space (e.g. `grep foo`). Filters keys case-insensitively.
+- Header: Title shows `PAGE x/y` right-aligned; below it, Prefix/Label/Filter only show when active; values are colorized; layout adapts to width.
+- Pagination: PageUp/PageDown moves pages; screen auto-refreshes on terminal resize.
+- Prompt: Single-line `Command (h for help)>`.
+- Prefix intellisense: When using `p|prefix` with no arg, inline autocomplete over all known prefixes (ends with `/`), using Tab to accept, Up/Down to cycle; ESC/Ctrl+C cancels. Suggestions search across the whole store (cached), not just filtered rows.
+- Responsiveness: Per-page timeouts on Azure listing to avoid hangs; conservative retries; low-overhead request counting and summary on exit.
 
 CLI Options
 - `--prefix <value>`: Required section/prefix.
@@ -38,17 +44,20 @@ CLI Options
 - `--auth <auto|device|browser|cli|vscode>`: Select auth method; defaults to auto.
 
 Commands (alphabetical)
-- a|add: Add new key under current/selected label.
+- a|add [key]: Add new key under current/selected label.
 - c|copy <n> [m]: Copy rows n..m to a target label and switch to it.
 - d|delete <n> [m]: Delete range; new items removed, existing marked.
-- e|edit <n>: Edit a value.
+- <n>: Edit a value for row n (numeric).
 - h|help|?: Command help (+ usage/options snapshot).
 - l|label [value]: Change label filter; no arg clears.
 - q|quit|exit: Quit, with save/cancel prompt when unsaved changes.
 - r|reload: Reload from Azure and reconcile local changes.
 - s|save: Save pending changes to Azure.
 - u|undo <n> [m]|all: Undo range or all.
-- w|whoami: Print identity/endpoint details (AAD).
+- whoami: Print identity/endpoint details (AAD).
+- /|grep [regex]: Filter keys by regex (case-insensitive). `/pattern` doesn’t need a space; `grep pattern` and `g pattern` do.
+- j|json [sep]: Open visible items in JSON editor with key separator (default `:`).
+- y|yaml [sep]: Open visible items in YAML editor with key separator (default `:`).
 
 Auth Notes
 - AAD requires data-plane RBAC: App Configuration Data Reader/Owner on the store. Subscription Owner/Global Admin alone is insufficient.
@@ -64,7 +73,7 @@ Build/Run Quick Start
   - `dotnet run --project src/AppConfigCli -- --prefix app:settings: --auth device`
   - Or force endpoint: `--endpoint https://<name>.azconfig.io` or `--endpoint <name>`
   - Optional: `--tenant <tenant-guid>`
-- Tests: `dotnet test -v minimal` (Core + App test projects; zero warnings on build)
+- Tests: `dotnet test AppConfigCli.sln --nologo --verbosity minimal` (Core + App test projects; zero warnings on build)
 
 Design Highlights
 - Item state machine: Unchanged, Modified, New, Deleted (Core + UI models mapped via Mapperly).
@@ -77,8 +86,13 @@ Design Highlights
   - JSON/YAML editors (`json <sep>`, `yaml <sep>`): `StructuredEditHelper` builds/reads via `FlatKeyMapper`, normalizes YAML nodes, and applies using bulk reconcile rules.
 - Editor app modularization:
   - Partial class split (`EditorApp.UI.cs`), `IFileSystem` and `IExternalEditor` abstractions for testability.
-  - `CommandParser` and `Commands` exist with tests; the main loop still uses the existing switch (parser not yet wired).
+  - `CommandParser` drives the main loop; numeric edit, paging keys, and special-case `/` are handled.
 - Zero build warnings (async methods start with `await Task.CompletedTask` where needed).
+
+Service Interaction & Resilience
+- Azure client uses conservative retry/backoff (MaxRetries=2, exponential).
+- Listing uses paged enumeration with per-page timeouts to avoid hangs under throttling; returns partial results rather than blocking.
+- A lightweight pipeline policy counts HTTP tries, successes/failures, and status distribution (429, etc.); a summary prints on quit.
 
 Known Limitations / Future Enhancements
 - ETag/concurrency not implemented yet (no `If-Match`); plan to add ETag to models and conflict workflow.
@@ -104,15 +118,15 @@ Repo Pointers
 
 How to Resume Quickly
 1) `dotnet build AppConfigCli.sln`
-2) `dotnet test -v minimal` (should be all green, zero build warnings)
+2) `dotnet test AppConfigCli.sln --nologo --verbosity minimal` (should be all green, zero build warnings)
 3) Run with your preferred auth:
    - ConnStr: set `APP_CONFIG_CONNECTION_STRING` → `dotnet run --project src/AppConfigCli -- --prefix <prefix>`
    - AAD: `dotnet run --project src/AppConfigCli -- --prefix <prefix> --auth device` and select a store
 4) Try editors:
    - Bulk text: `o|open`
-   - JSON: `json :` (or your separator)
-   - YAML: `yaml :` (or your separator)
-5) For development, focus on: wiring `CommandParser`, ETag flow, and packaging.
+   - JSON: `j|json :` (or your separator)
+   - YAML: `y|yaml :` (or your separator)
+5) For development, focus on: ETag flow, packaging, and optional live stats/UX for throttling.
 
 Development Status (2025-09-19)
 - Modularization:

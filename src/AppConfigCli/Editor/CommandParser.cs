@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Linq;
 
 namespace AppConfigCli;
@@ -31,7 +32,23 @@ internal static class CommandParser
     {
         command = null; error = null;
         if (string.IsNullOrWhiteSpace(input)) { error = ""; return false; }
-        var parts = input.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var trimmed = input.Trim();
+        // Numeric command -> Edit that index
+        if (int.TryParse(trimmed, NumberStyles.Integer, CultureInfo.InvariantCulture, out var numericIndex))
+        {
+            command = new Command.Edit(numericIndex);
+            return true;
+        }
+
+        // Special-case: '/' grep shortcut accepts pattern immediately without a space
+        if (trimmed.StartsWith("/", StringComparison.Ordinal))
+        {
+            var pattern = trimmed.Length > 1 ? trimmed[1..].TrimStart() : null;
+            command = new Command.Grep(pattern, Clear: string.IsNullOrWhiteSpace(pattern));
+            return true;
+        }
+
+        var parts = trimmed.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length == 0) { error = ""; return false; }
 
         var cmdToken = parts[0];
@@ -51,4 +68,3 @@ internal static class CommandParser
 
     // Range parsing now lives in Command.TryParseRange via individual command Specs
 }
-

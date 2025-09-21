@@ -6,9 +6,9 @@ internal partial record Command
     {
         public static CommandSpec Spec => new CommandSpec
         {
-            Aliases = new[] { "w", "whoami" },
-            Summary = "w|whoami",
-            Usage = "Usage: w|whoami",
+            Aliases = new[] { "whoami" },
+            Summary = "whoami",
+            Usage = "Usage: whoami",
             Description = "Show current identity and endpoint",
             Parser = args => (true, new WhoAmI(), null)
         };

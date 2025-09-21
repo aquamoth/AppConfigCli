@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace AppConfigCli;
 
 internal partial record Command
@@ -14,43 +16,132 @@ internal partial record Command
         };
         public override async Task<CommandResult> ExecuteAsync(EditorApp app)
         {
-            var args = Prompt ? System.Array.Empty<string>() : new[] { Value ?? string.Empty };
+            string[] args = Prompt ? [] : [Value ?? string.Empty];
             string? newPrefix = null;
             if (args.Length == 0)
             {
                 Console.WriteLine("Enter new prefix (empty for all keys):");
-                Console.Write("> ");
-                var input = Console.ReadLine();
-                newPrefix = input is null ? string.Empty : input.Trim();
+                var prefixes = await app.GetPrefixCandidatesAsync().ConfigureAwait(false);
+                var typed = ReadLineWithAutocomplete(prefixes, app.Theme);
+                if (typed is null) return new CommandResult(); // ESC cancels
+                newPrefix = typed;
             }
             else
             {
                 newPrefix = string.Join(' ', args).Trim();
             }
 
-            if (app.HasPendingChanges(out var newCount, out var modCount, out var delCount))
-            {
-                Console.WriteLine($"You have unsaved changes: +{newCount} new, *{modCount} modified, -{delCount} deleted.");
-                Console.WriteLine("Change prefix now?");
-                Console.WriteLine("  S) Save and change");
-                Console.WriteLine("  Q) Change without saving (discard)");
-                Console.WriteLine("  C) Cancel");
-                while (true)
-                {
-                    Console.Write("> ");
-                    var choice = (Console.ReadLine() ?? string.Empty).Trim().ToLowerInvariant();
-                    if (choice.Length == 0) continue;
-                    var ch = choice[0];
-                    if (ch == 'c') return new CommandResult();
-                    if (ch == 's') { await app.SaveAsync(pause: false); break; }
-                    if (ch == 'q') { /* discard */ break; }
-                    Console.WriteLine("Please enter S, Q, or C.");
-                }
-            }
-
             app.Prefix = newPrefix; // can be empty string to mean 'all keys'
             await app.LoadAsync();
             return new CommandResult();
+        }
+    }
+
+    private static string? ReadLineWithAutocomplete(IReadOnlyCollection<string> candidates, ConsoleTheme theme)
+    {
+        var buffer = new StringBuilder();
+        int startLeft, startTop;
+        try { Console.Write("> "); startLeft = Console.CursorLeft; startTop = Console.CursorTop; }
+        catch { startLeft = 0; startTop = 0; }
+
+        int matchIndex = 0;
+        string? currentSuggestion = null;
+        int lastPrinted = 0;
+
+        void UpdateSuggestion()
+        {
+            var typed = buffer.ToString();
+            var matches = candidates.Where(s => s.StartsWith(typed, StringComparison.Ordinal)).ToList();
+            if (matches.Count == 0)
+            {
+                currentSuggestion = null; matchIndex = 0; return;
+            }
+            if (matchIndex >= matches.Count) matchIndex = 0;
+            if (matchIndex < 0) matchIndex = matches.Count - 1;
+            currentSuggestion = matches[matchIndex];
+        }
+
+        void Render()
+        {
+            var typed = buffer.ToString();
+            string remainder = string.Empty;
+            if (!string.IsNullOrEmpty(currentSuggestion) && currentSuggestion!.StartsWith(typed, StringComparison.Ordinal) && currentSuggestion.Length > typed.Length)
+            {
+                remainder = currentSuggestion.Substring(typed.Length);
+            }
+            try
+            {
+                Console.SetCursorPosition(startLeft, startTop);
+            }
+            catch { }
+            Console.Write(typed);
+            int printed = typed.Length;
+            if (remainder.Length > 0 && theme.Enabled)
+            {
+                var prev = Console.ForegroundColor;
+                var col = ConsoleColor.DarkGray;
+                if (Console.ForegroundColor != col) Console.ForegroundColor = col;
+                Console.Write(remainder);
+                if (Console.ForegroundColor != prev) Console.ForegroundColor = prev;
+                printed += remainder.Length;
+            }
+            // Clear any trailing leftover from previous render
+            if (printed < lastPrinted)
+            {
+                Console.Write(new string(' ', lastPrinted - printed));
+            }
+            // Place cursor back at end of typed input
+            try { Console.SetCursorPosition(startLeft + typed.Length, startTop); } catch { }
+            lastPrinted = printed;
+        }
+
+        UpdateSuggestion();
+        Render();
+        while (true)
+        {
+            var key = Console.ReadKey(intercept: true);
+            if (key.Key == ConsoleKey.Enter)
+            {
+                Console.WriteLine();
+                return buffer.ToString();
+            }
+            if (key.Key == ConsoleKey.Escape || ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.C))
+            {
+                Console.WriteLine();
+                return null; // cancel
+            }
+            if (key.Key == ConsoleKey.Tab)
+            {
+                if (!string.IsNullOrEmpty(currentSuggestion))
+                {
+                    buffer.Clear();
+                    buffer.Append(currentSuggestion);
+                    UpdateSuggestion();
+                    Render();
+                }
+                continue;
+            }
+            if (key.Key == ConsoleKey.UpArrow)
+            {
+                matchIndex--; UpdateSuggestion(); Render(); continue;
+            }
+            if (key.Key == ConsoleKey.DownArrow)
+            {
+                matchIndex++; UpdateSuggestion(); Render(); continue;
+            }
+            if (key.Key == ConsoleKey.Backspace)
+            {
+                if (buffer.Length > 0) { buffer.Remove(buffer.Length - 1, 1); matchIndex = 0; UpdateSuggestion(); Render(); }
+                continue;
+            }
+            if (!char.IsControl(key.KeyChar))
+            {
+                buffer.Append(key.KeyChar);
+                matchIndex = 0;
+                UpdateSuggestion();
+                Render();
+                continue;
+            }
         }
     }
 }

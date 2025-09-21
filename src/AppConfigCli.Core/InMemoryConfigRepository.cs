@@ -23,6 +23,12 @@ public sealed class InMemoryConfigRepository : IConfigRepository
         }
     }
 
+    public async Task<HashSet<string>> FetchKeysAsync(string? prefix, string? labelFilter, CancellationToken ct = default)
+    {
+        var keys = await ListAsync(prefix, labelFilter, ct).ConfigureAwait(false);
+        return [.. keys.Select(k => k.Key)];
+    }
+
     public Task<IReadOnlyList<ConfigEntry>> ListAsync(string? prefix, string? labelFilter, CancellationToken ct = default)
     {
         var list = new List<ConfigEntry>();

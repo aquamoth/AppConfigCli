@@ -20,6 +20,8 @@ internal class Program
 {
     private static async Task<int> Main(string[] args)
     {
+        Console.OutputEncoding = Encoding.UTF8;
+
         var options = ParseArgs(args);
         if (options.ShowVersion)
         {
@@ -481,6 +483,7 @@ internal class Program
         Console.WriteLine("  h|help          Help");
         Console.WriteLine("  l|label [value] Change label filter (no arg clears; '-' = empty label)");
         Console.WriteLine("  o|open          Edit all visible items in external editor");
+        Console.WriteLine("  replace         Regex search+replace across visible VALUES");
         Console.WriteLine("  q|quit          Quit");
         Console.WriteLine("  r|reload        Reload from Azure and reconcile local changes");
         Console.WriteLine("  s|save          Save all changes");
@@ -549,13 +552,14 @@ internal sealed partial class EditorApp
     private readonly AppConfigCli.Core.IConfigRepository _repo;
     private readonly string _authModeDesc;
     internal readonly Func<Task>? WhoAmI;
-    
+
 
     internal string? Prefix { get; set; }
     internal string? Label { get; set; }
     internal List<Item> Items { get; } = [];
     internal string? KeyRegexPattern { get; set; }
     internal Regex? KeyRegex { get; set; }
+    internal Regex? ValueHighlightRegex { get; set; }
     internal IFileSystem Filesystem { get; init; }
     internal IExternalEditor ExternalEditor { get; init; }
     internal ConsoleTheme Theme { get; init; }
@@ -572,6 +576,33 @@ internal sealed partial class EditorApp
         ExternalEditor = externalEditor ?? new DefaultExternalEditor();
         Theme = theme ?? ConsoleTheme.Load();
     }
+
+    // Paging state
+    private int _pageIndex = 0; // zero-based
+
+    private void PageUp()
+    {
+        var total = GetVisibleItems().Count;
+        int pageSize, pageCount;
+        try { int h = Console.WindowHeight; int w = Console.WindowWidth; ComputePaging(h, total, GetHeaderLineCountForWidth(Math.Max(20, Math.Min(w, 240))), out pageSize, out pageCount); }
+        catch { ComputePaging(40, total, GetHeaderLineCountForWidth(100), out pageSize, out pageCount); }
+        if (pageCount <= 1) { _pageIndex = 0; return; }
+        _pageIndex = Math.Max(0, _pageIndex - 1);
+    }
+
+    private void PageDown()
+    {
+        var total = GetVisibleItems().Count;
+        int pageSize, pageCount;
+        try { int h = Console.WindowHeight; int w = Console.WindowWidth; ComputePaging(h, total, GetHeaderLineCountForWidth(Math.Max(20, Math.Min(w, 240))), out pageSize, out pageCount); }
+        catch { ComputePaging(40, total, GetHeaderLineCountForWidth(100), out pageSize, out pageCount); }
+        if (pageCount <= 1) { _pageIndex = 0; return; }
+        _pageIndex = Math.Min(pageCount - 1, _pageIndex + 1);
+    }
+
+    // Allow commands to trigger paging during custom prompts
+    internal void PageUpCommand() => PageUp();
+    internal void PageDownCommand() => PageDown();
 
     public async Task LoadAsync()
     {
@@ -601,8 +632,18 @@ internal sealed partial class EditorApp
             while (true)
             {
                 Render();
-                Console.Write("> ");
-                var (ctrlC, input) = ReadLineOrCtrlC(CommandHistory);
+                var (ctrlC, input) = ReadLineOrCtrlC(
+                    CommandHistory,
+                    onRepaint: () =>
+                    {
+                        Render();
+                        int left, top;
+                        try { left = Console.CursorLeft; top = Console.CursorTop; }
+                        catch { left = 0; top = 0; }
+                        return (left, top);
+                    },
+                    onPageUp: () => PageUp(),
+                    onPageDown: () => PageDown());
                 if (ctrlC)
                 {
                     var quit = new Command.Quit();
@@ -642,7 +683,11 @@ internal sealed partial class EditorApp
     }
 
     // Command prompt line editor with history, cursor movement, word jumps, delete/backspace, ESC-to-clear, and instant Ctrl+C
-    internal static (bool CtrlC, string? Text) ReadLineOrCtrlC(List<string>? history = null)
+    internal static (bool CtrlC, string? Text) ReadLineOrCtrlC(
+        List<string>? history = null,
+        Func<(int Left, int Top)>? onRepaint = null,
+        Action? onPageUp = null,
+        Action? onPageDown = null)
     {
         var buffer = new StringBuilder();
         int cursor = 0; // insertion index in buffer
@@ -650,6 +695,8 @@ internal sealed partial class EditorApp
         try { startLeft = Console.CursorLeft; startTop = Console.CursorTop; }
         catch { startLeft = 0; startTop = 0; }
         int scrollStart = 0; // index in buffer where the viewport starts
+        int lastW = 0, lastH = 0;
+        try { lastW = Console.WindowWidth; lastH = Console.WindowHeight; } catch { lastW = 0; lastH = 0; }
 
         // History navigation state
         int histIndex = history?.Count ?? 0; // one past the last (bottom slot)
@@ -724,7 +771,30 @@ internal sealed partial class EditorApp
 
         while (true)
         {
-            var key = Console.ReadKey(intercept: true);
+            // Auto-refresh on console resize
+            try
+            {
+                int w = Console.WindowWidth, h = Console.WindowHeight;
+                if ((w != lastW || h != lastH) && onRepaint is not null)
+                {
+                    lastW = w; lastH = h;
+                    var pos = onRepaint();
+                    startLeft = pos.Left; startTop = pos.Top;
+                }
+            }
+            catch { }
+
+            ConsoleKeyInfo key;
+            if (Console.KeyAvailable)
+            {
+                key = Console.ReadKey(intercept: true);
+            }
+            else
+            {
+                // Small sleep to avoid busy-spin when waiting for resize
+                try { System.Threading.Thread.Sleep(50); } catch { }
+                continue;
+            }
             // Ctrl+C pressed -> signal to caller
             if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.C)
             {
@@ -735,6 +805,22 @@ internal sealed partial class EditorApp
             {
                 Console.WriteLine();
                 return (false, buffer.ToString());
+            }
+            // Paging hotkeys (PgUp/PgDn) trigger a repaint of the item list but keep editing the prompt
+            if (key.Key == ConsoleKey.PageUp || key.Key == ConsoleKey.PageDown)
+            {
+                try
+                {
+                    if (key.Key == ConsoleKey.PageUp) onPageUp?.Invoke(); else onPageDown?.Invoke();
+                    if (onRepaint is not null)
+                    {
+                        var pos = onRepaint();
+                        startLeft = pos.Left; startTop = pos.Top;
+                    }
+                }
+                catch { }
+                Render();
+                continue;
             }
             if (key.Key == ConsoleKey.Escape)
             {
@@ -927,6 +1013,179 @@ internal sealed partial class EditorApp
                 buffer.Insert(cursor, key.KeyChar);
                 cursor++;
                 if (histIndex == (history?.Count ?? 0)) draft = buffer.ToString();
+                Render();
+                continue;
+            }
+        }
+    }
+
+    // Simpler input reader for command prompts: supports ESC/Ctrl+C cancel and PageUp/PageDown via callbacks
+    internal static (bool Cancelled, string? Text) ReadLineWithPagingCancelable(
+        Func<(int Left, int Top)> onRepaint,
+        Action onPageUp,
+        Action onPageDown)
+    {
+        var buffer = new StringBuilder();
+        int cursor = 0; // insertion index
+        int startLeft, startTop;
+        try { startLeft = Console.CursorLeft; startTop = Console.CursorTop; }
+        catch { startLeft = 0; startTop = 0; }
+
+        void Render()
+        {
+            try { Console.SetCursorPosition(startLeft, startTop); } catch { }
+            var text = buffer.ToString();
+            Console.Write(text);
+            // Clear any trailing remnants by writing a space and moving back
+            Console.Write(' ');
+            try { Console.SetCursorPosition(startLeft + cursor, startTop); } catch { }
+        }
+
+        Render();
+        while (true)
+        {
+            ConsoleKeyInfo key;
+            if (Console.KeyAvailable)
+                key = Console.ReadKey(intercept: true);
+            else { try { System.Threading.Thread.Sleep(25); } catch { } continue; }
+
+            // Cancel keys
+            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.C)
+            {
+                Console.WriteLine();
+                return (true, null);
+            }
+            if (key.Key == ConsoleKey.Escape)
+            {
+                Console.WriteLine();
+                return (true, null);
+            }
+
+            // Paging
+            if (key.Key == ConsoleKey.PageUp || key.Key == ConsoleKey.PageDown)
+            {
+                try { if (key.Key == ConsoleKey.PageUp) onPageUp(); else onPageDown(); } catch { }
+                try
+                {
+                    var pos = onRepaint();
+                    startLeft = pos.Left; startTop = pos.Top;
+                }
+                catch { }
+                Render();
+                continue;
+            }
+
+            // Navigation keys
+            if (key.Key == ConsoleKey.LeftArrow)
+            {
+                if (cursor > 0) { cursor--; Render(); }
+                continue;
+            }
+            if (key.Key == ConsoleKey.RightArrow)
+            {
+                if (cursor < buffer.Length) { cursor++; Render(); }
+                continue;
+            }
+            if (key.Key == ConsoleKey.Home)
+            {
+                cursor = 0; Render();
+                continue;
+            }
+            if (key.Key == ConsoleKey.End)
+            {
+                cursor = buffer.Length; Render();
+                continue;
+            }
+
+            // Word-wise navigation/deletion (Ctrl + arrows/backspace/delete)
+            static bool IsWordChar(char c) => char.IsLetterOrDigit(c);
+            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.LeftArrow)
+            {
+                if (cursor > 0)
+                {
+                    int i = cursor - 1;
+                    while (i >= 0 && !IsWordChar(i < buffer.Length ? buffer[i] : ' ')) i--;
+                    while (i >= 0 && IsWordChar(buffer[i])) i--;
+                    cursor = Math.Max(0, i + 1);
+                    Render();
+                }
+                continue;
+            }
+            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.RightArrow)
+            {
+                if (cursor < buffer.Length)
+                {
+                    int i = cursor;
+                    while (i < buffer.Length && !IsWordChar(buffer[i])) i++;
+                    while (i < buffer.Length && IsWordChar(buffer[i])) i++;
+                    cursor = i;
+                    Render();
+                }
+                continue;
+            }
+            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.Backspace)
+            {
+                if (cursor > 0)
+                {
+                    int start = cursor - 1, i = start;
+                    while (i >= 0 && !IsWordChar(buffer[i])) i--;
+                    while (i >= 0 && IsWordChar(buffer[i])) i--;
+                    int delFrom = Math.Max(0, i + 1);
+                    int delLen = cursor - delFrom;
+                    if (delLen > 0)
+                    {
+                        buffer.Remove(delFrom, delLen);
+                        cursor = delFrom;
+                        Render();
+                    }
+                }
+                continue;
+            }
+            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.Delete)
+            {
+                if (cursor < buffer.Length)
+                {
+                    int i = cursor;
+                    while (i < buffer.Length && !IsWordChar(buffer[i])) i++;
+                    while (i < buffer.Length && IsWordChar(buffer[i])) i++;
+                    int delLen = Math.Max(0, i - cursor);
+                    if (delLen > 0)
+                    {
+                        buffer.Remove(cursor, delLen);
+                        Render();
+                    }
+                }
+                continue;
+            }
+
+            if (key.Key == ConsoleKey.Enter)
+            {
+                Console.WriteLine();
+                return (false, buffer.ToString());
+            }
+            if (key.Key == ConsoleKey.Backspace)
+            {
+                if (cursor > 0)
+                {
+                    buffer.Remove(cursor - 1, 1);
+                    cursor--;
+                    Render();
+                }
+                continue;
+            }
+            if (key.Key == ConsoleKey.Delete)
+            {
+                if (cursor < buffer.Length)
+                {
+                    buffer.Remove(cursor, 1);
+                    Render();
+                }
+                continue;
+            }
+            if (!char.IsControl(key.KeyChar))
+            {
+                buffer.Insert(cursor, key.KeyChar);
+                cursor++;
                 Render();
                 continue;
             }
@@ -1186,5 +1445,68 @@ internal sealed partial class EditorApp
         var coreList = Items.Select(mapper.ToCoreItem).ToList();
         var indices = AppConfigCli.Core.ItemFilter.MapVisibleRangeToSourceIndices(coreList, Label, KeyRegex, start, end, out error);
         return indices;
+    }
+
+    // Cached prefix candidates built from all repository keys plus current in-memory items
+    private List<string>? _prefixCache;
+    internal void InvalidatePrefixCache()
+    {
+        _prefixCache = null;
+    }
+
+    internal async Task<IReadOnlyList<string>> GetPrefixCandidatesAsync()
+    {
+        if (_prefixCache is not null)
+            return _prefixCache;
+
+        var set = new HashSet<string>(StringComparer.Ordinal);
+
+        // Include in-memory items (unsaved/new)
+        foreach (var it in Items)
+        {
+            if (it.FullKey != null)
+            {
+                var index = it.FullKey.IndexOf('/');
+                if (index > 0) set.Add(it.FullKey[..(index + 1)]);
+            }
+        }
+
+        // Include all repository entries (ignoring filters)
+        //TODO: We could filter by Label, if we invalidate the cache on label change
+        var allKeys = await _repo.FetchKeysAsync(prefix: null, labelFilter: null).ConfigureAwait(false);
+        foreach (var key in allKeys)
+        {
+            var index = key.IndexOf('/');
+            if (index > 0)
+            {
+                set.Add(key[..(index + 1)]);
+            }
+        }
+
+        _prefixCache = [.. set.OrderBy(s => s, StringComparer.Ordinal)];
+        return _prefixCache;
+    }
+
+    internal bool TryAddPrefixFromKey(string key)
+    {
+        if (_prefixCache is null)
+            return false; // cache not built yet
+
+        if (string.IsNullOrEmpty(key))
+            return false; // no key => no prefix
+
+        var keyIndex = key.IndexOf('/');
+        if (keyIndex <= 0)
+            return false; // no prefix
+
+        var prefix = key[..(keyIndex + 1)];
+
+        var prefixIndex = _prefixCache.BinarySearch(prefix, StringComparer.Ordinal);
+        if (prefixIndex >= 0)
+            return false; // already present
+
+        // insert prefix in sorted order
+        _prefixCache.Insert(~prefixIndex, prefix);
+        return true;
     }
 }

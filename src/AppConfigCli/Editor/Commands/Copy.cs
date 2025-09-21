@@ -101,9 +101,7 @@ internal partial record Command
             }
 
             app.Items.Sort(EditorApp.CompareItems);
-            Console.WriteLine($"Copied {selection.Count} item(s): {created} created, {updated} updated under label [{targetLabel ?? "(none)"}].");
-            Console.WriteLine("Press Enter to continue...");
-            Console.ReadLine();
+            // No summary/pause on success per UX request
         }
     }
 }

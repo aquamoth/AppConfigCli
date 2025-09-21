@@ -52,9 +52,7 @@ internal partial record Command
                 var (created, updated, deleted) = BulkEditHelper.ApplyEdits(fileText, app.Items, visibleUnderLabel, app.Prefix, app.Label);
                 app.ConsolidateDuplicates();
                 app.Items.Sort(EditorApp.CompareItems);
-                Console.WriteLine($"Bulk edit applied for label [{app.Label ?? "(none)"}]: {created} added, {updated} updated, {deleted} deleted.");
-                Console.WriteLine("Press Enter to continue...");
-                Console.ReadLine();
+                // No summary/pause on success per UX request
                 return new CommandResult();
             }
             finally

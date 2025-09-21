@@ -6,8 +6,8 @@ internal partial record Command
     {
         public static CommandSpec Spec => new CommandSpec
         {
-            Aliases = new[] { "json" },
-            Summary = "json [sep]",
+            Aliases = new[] { "j", "json" },
+            Summary = "j|json [sep]",
             Usage = "Usage: json [separator] (default ':')",
             Description = "Edit visible items as nested JSON split by <sep> (default ':')",
             Parser = args =>
@@ -69,9 +69,7 @@ internal partial record Command
                 }
                 app.ConsolidateDuplicates();
                 app.Items.Sort(EditorApp.CompareItems);
-                Console.WriteLine($"JSON edit applied for label [{(app.Label?.Length == 0 ? "(none)" : app.Label) ?? "(any)"}]: {cJ} added, {uJ} updated, {dJ} deleted.");
-                Console.WriteLine("Press Enter to continue...");
-                Console.ReadLine();
+                // No summary/pause on success per UX request
                 return new CommandResult();
 
 

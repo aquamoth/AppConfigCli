@@ -9,8 +9,8 @@ internal partial record Command
     {
         public static CommandSpec Spec => new CommandSpec
         {
-            Aliases = new[] { "yaml" },
-            Summary = "yaml [sep]",
+            Aliases = new[] { "y", "yaml" },
+            Summary = "y|yaml [sep]",
             Usage = "Usage: yaml [separator] (default ':')",
             Description = "Edit visible items as nested YAML split by <sep> (default ':')",
             Parser = args =>
@@ -216,9 +216,7 @@ internal partial record Command
                 }
                 app.ConsolidateDuplicates();
                 app.Items.Sort(EditorApp.CompareItems);
-                Console.WriteLine($"YAML edit applied for label [{(app.Label?.Length == 0 ? "(none)" : app.Label) ?? "(any)"}]: {c2} added, {u2} updated, {d2} deleted.");
-                Console.WriteLine("Press Enter to continue...");
-                Console.ReadLine();
+                // No summary/pause on success per UX request
                 return;
             }
             finally

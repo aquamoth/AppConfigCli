@@ -8,6 +8,13 @@
 
 Keyboard-first, cross-platform editor for Azure App Configuration sections, built in C# (.NET 9). It lists key/values under a prefix, lets you edit/add/delete using only the keyboard, and saves changes back by merging updates.
 
+## License
+
+AppConfigCli is open source under the Apache 2.0 License.
+This allows free use, modification, and redistribution, including for commercial purposes.
+Corporations can safely adopt it without legal risk.
+Of course, as always, while I do my best to ensure the App has no critical bugs, you use it at your own risk.
+
 ## Requirements
 
 - .NET 9 SDK
