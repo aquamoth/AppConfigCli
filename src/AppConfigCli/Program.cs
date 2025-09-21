@@ -580,8 +580,8 @@ internal sealed partial class EditorApp
     {
         var total = GetVisibleItems().Count;
         int pageSize, pageCount;
-        try { int h = Console.WindowHeight; ComputePaging(h, total, out pageSize, out pageCount); }
-        catch { ComputePaging(40, total, out pageSize, out pageCount); }
+        try { int h = Console.WindowHeight; int w = Console.WindowWidth; ComputePaging(h, total, GetHeaderLineCountForWidth(Math.Max(20, Math.Min(w, 240))), out pageSize, out pageCount); }
+        catch { ComputePaging(40, total, GetHeaderLineCountForWidth(100), out pageSize, out pageCount); }
         if (pageCount <= 1) { _pageIndex = 0; return; }
         _pageIndex = Math.Max(0, _pageIndex - 1);
     }
@@ -590,8 +590,8 @@ internal sealed partial class EditorApp
     {
         var total = GetVisibleItems().Count;
         int pageSize, pageCount;
-        try { int h = Console.WindowHeight; ComputePaging(h, total, out pageSize, out pageCount); }
-        catch { ComputePaging(40, total, out pageSize, out pageCount); }
+        try { int h = Console.WindowHeight; int w = Console.WindowWidth; ComputePaging(h, total, GetHeaderLineCountForWidth(Math.Max(20, Math.Min(w, 240))), out pageSize, out pageCount); }
+        catch { ComputePaging(40, total, GetHeaderLineCountForWidth(100), out pageSize, out pageCount); }
         if (pageCount <= 1) { _pageIndex = 0; return; }
         _pageIndex = Math.Min(pageCount - 1, _pageIndex + 1);
     }
