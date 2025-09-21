@@ -191,7 +191,17 @@ internal sealed partial class EditorApp
             if (valueWidth > 0)
             {
                 Console.Write("  ");
-                if (Theme.Enabled) WriteColoredFixed(valDisp, valueWidth); else Console.Write(PadColumn(valDisp, valueWidth));
+                if (Theme.Enabled)
+                {
+                    if (ValueHighlightRegex is not null)
+                        WriteColoredFixedWithHighlight(valDisp, valueWidth, ValueHighlightRegex);
+                    else
+                        WriteColoredFixed(valDisp, valueWidth);
+                }
+                else
+                {
+                    Console.Write(PadColumn(valDisp, valueWidth));
+                }
             }
             Console.ForegroundColor = Theme.Default;
             Console.WriteLine();
@@ -199,6 +209,12 @@ internal sealed partial class EditorApp
 
         // Single-line prompt hint to avoid wrapping on narrow consoles
         Console.Write("Command (h for help)> ");
+    }
+
+    // Expose a safe repaint for commands needing to trigger immediate UI refresh
+    internal void Repaint()
+    {
+        try { Render(); } catch { }
     }
 
     private static int GetWindowHeight()
@@ -581,6 +597,52 @@ internal sealed partial class EditorApp
             Console.Write(new string(' ', width - len));
         }
         if (Console.ForegroundColor != prev) Console.ForegroundColor = prev;
+    }
+
+    private void WriteColoredFixedWithHighlight(string text, int width, System.Text.RegularExpressions.Regex highlight)
+    {
+        int len = Math.Min(text.Length, width);
+        var prevFg = Console.ForegroundColor;
+        var prevBg = Console.BackgroundColor;
+
+        // Precompute highlight flags for displayed substring
+        var flags = new bool[len];
+        try
+        {
+            var m = highlight.Matches(text.Substring(0, len));
+            foreach (System.Text.RegularExpressions.Match match in m)
+            {
+                int start = Math.Max(0, match.Index);
+                int end = Math.Min(len, match.Index + match.Length);
+                for (int i = start; i < end; i++) flags[i] = true;
+            }
+        }
+        catch { }
+
+        for (int i = 0; i < len; i++)
+        {
+            var ch = text[i];
+            var fg = ClassifyColor(ch);
+            bool hl = flags[i];
+            if (hl)
+            {
+                if (Console.BackgroundColor != ConsoleColor.DarkYellow) Console.BackgroundColor = ConsoleColor.DarkYellow;
+                if (Console.ForegroundColor != ConsoleColor.Black) Console.ForegroundColor = ConsoleColor.Black;
+            }
+            else
+            {
+                if (Console.BackgroundColor != prevBg) Console.BackgroundColor = prevBg;
+                if (Console.ForegroundColor != fg) Console.ForegroundColor = fg;
+            }
+            Console.Write(ch);
+        }
+        // Reset colors and pad if needed
+        if (Console.BackgroundColor != prevBg) Console.BackgroundColor = prevBg;
+        if (Console.ForegroundColor != prevFg) Console.ForegroundColor = prevFg;
+        if (len < width)
+        {
+            Console.Write(new string(' ', width - len));
+        }
     }
 
     private ConsoleColor ClassifyColor(char ch)

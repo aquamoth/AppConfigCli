@@ -481,6 +481,7 @@ internal class Program
         Console.WriteLine("  h|help          Help");
         Console.WriteLine("  l|label [value] Change label filter (no arg clears; '-' = empty label)");
         Console.WriteLine("  o|open          Edit all visible items in external editor");
+        Console.WriteLine("  replace         Regex search+replace across visible VALUES");
         Console.WriteLine("  q|quit          Quit");
         Console.WriteLine("  r|reload        Reload from Azure and reconcile local changes");
         Console.WriteLine("  s|save          Save all changes");
@@ -556,6 +557,7 @@ internal sealed partial class EditorApp
     internal List<Item> Items { get; } = [];
     internal string? KeyRegexPattern { get; set; }
     internal Regex? KeyRegex { get; set; }
+    internal Regex? ValueHighlightRegex { get; set; }
     internal IFileSystem Filesystem { get; init; }
     internal IExternalEditor ExternalEditor { get; init; }
     internal ConsoleTheme Theme { get; init; }

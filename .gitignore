@@ -21,4 +21,4 @@ coveragereport/
 tests/
 publish/
 *.log
-.binlog
+*.binlog

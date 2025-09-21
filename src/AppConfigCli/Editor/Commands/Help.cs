@@ -58,7 +58,7 @@ internal partial record Command
             Console.WriteLine("Inline editing");
             // Numeric edit hint (no short alias; indent 5 spaces) shown before other items
             WriteWrappedRow("     <n>", "Edit value of item number n");
-            var editAliases = new[] { "add", /* "edit" removed: numeric input edits */ "delete", "copy", "save", "undo" };
+            var editAliases = new[] { "add", /* "edit" removed: numeric input edits */ "delete", "copy", "replace", "save", "undo" };
             var editSpecs = editAliases.Select(a => FindSpec(a)).Where(s => s is not null)!.Cast<Command.CommandSpec>()
                 .OrderBy(s => LongAlias(s), StringComparer.OrdinalIgnoreCase);
             foreach (var s in editSpecs)

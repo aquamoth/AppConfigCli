@@ -41,6 +41,7 @@ internal abstract partial record Command
         Add.Spec,
         Delete.Spec,
         Copy.Spec,
+        Replace.Spec,
         Label.Spec,
         Grep.Spec,
         Save.Spec,

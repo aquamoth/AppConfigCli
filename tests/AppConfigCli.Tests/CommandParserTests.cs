@@ -108,4 +108,13 @@ public class CommandParserTests
         cmd.Should().BeNull();
         err.Should().NotBeNull();
     }
+
+    [Fact]
+    public void Parses_replace_command()
+    {
+        AppConfigCli.CommandParser.TryParse("replace", out var cmd, out var err).Should().BeTrue();
+        cmd.Should().NotBeNull();
+        cmd!.GetType().Should().Be(typeof(AppConfigCli.Command.Replace));
+        err.Should().BeNull();
+    }
 }
