@@ -1,5 +1,6 @@
 using System;
 using System.Linq;
+using System.Text;
 using System.Threading.Tasks;
 
 namespace AppConfigCli;
@@ -25,8 +26,8 @@ internal partial record Command
             if (Prompt)
             {
                 Console.WriteLine("Enter new key (relative to prefix):");
-                Console.Write("> ");
-                k = Console.ReadLine();
+                k = ReadLineCancelable();
+                if (k is null) return Task.FromResult(new CommandResult());
             }
             if (string.IsNullOrWhiteSpace(k)) return Task.FromResult(new CommandResult());
             k = k!.Trim();
@@ -39,8 +40,8 @@ internal partial record Command
             else
             {
                 Console.WriteLine("Enter label for new key (empty for none):");
-                Console.Write("> ");
-                var lbl = Console.ReadLine();
+                var lbl = ReadLineCancelable();
+                if (lbl is null) return Task.FromResult(new CommandResult());
                 chosenLabel = string.IsNullOrWhiteSpace(lbl) ? null : lbl!.Trim();
                 Console.WriteLine($"Using label: [{chosenLabel ?? "(none)"}]");
             }
@@ -53,8 +54,9 @@ internal partial record Command
             }
 
             Console.WriteLine("Enter value:");
-            Console.Write("> ");
-            var v = Console.ReadLine() ?? string.Empty;
+            var v = ReadLineCancelable();
+            if (v is null) return Task.FromResult(new CommandResult());
+            v ??= string.Empty;
             var basePrefix = app.Prefix ?? string.Empty;
             app.Items.Add(new Item
             {
@@ -67,6 +69,49 @@ internal partial record Command
             });
             app.Items.Sort(EditorApp.CompareItems);
             return Task.FromResult(new CommandResult());
+        }
+    }
+
+    private static string? ReadLineCancelable()
+    {
+        var buffer = new StringBuilder();
+        int startLeft = 0, startTop = 0;
+        try { Console.Write("> "); startLeft = Console.CursorLeft; startTop = Console.CursorTop; } catch { }
+        void Render()
+        {
+            try { Console.SetCursorPosition(startLeft, startTop); } catch { }
+            Console.Write(buffer.ToString());
+        }
+        Render();
+        while (true)
+        {
+            var key = Console.ReadKey(intercept: true);
+            if (key.Key == ConsoleKey.Enter)
+            {
+                Console.WriteLine();
+                return buffer.ToString();
+            }
+            if (key.Key == ConsoleKey.Escape)
+            {
+                Console.WriteLine();
+                return null; // cancel
+            }
+            if (key.Key == ConsoleKey.Backspace)
+            {
+                if (buffer.Length > 0)
+                {
+                    buffer.Remove(buffer.Length - 1, 1);
+                    try { Console.SetCursorPosition(Math.Max(0, startLeft + buffer.Length), startTop); } catch { }
+                    Console.Write(' ');
+                    Render();
+                }
+                continue;
+            }
+            if (!char.IsControl(key.KeyChar))
+            {
+                buffer.Append(key.KeyChar);
+                Render();
+            }
         }
     }
 }

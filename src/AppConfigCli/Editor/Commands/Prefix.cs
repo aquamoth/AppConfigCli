@@ -22,7 +22,9 @@ internal partial record Command
             {
                 Console.WriteLine("Enter new prefix (empty for all keys):");
                 var prefixes = await BuildExistingPrefixesAsync(app).ConfigureAwait(false);
-                newPrefix = ReadLineWithAutocomplete(prefixes, app.Theme) ?? string.Empty;
+                var typed = ReadLineWithAutocomplete(prefixes, app.Theme);
+                if (typed is null) return new CommandResult(); // ESC cancels
+                newPrefix = typed;
             }
             else
             {
@@ -123,6 +125,11 @@ internal partial record Command
             {
                 Console.WriteLine();
                 return buffer.ToString();
+            }
+            if (key.Key == ConsoleKey.Escape)
+            {
+                Console.WriteLine();
+                return null; // cancel
             }
             if (key.Key == ConsoleKey.Tab)
             {
