@@ -687,6 +687,8 @@ internal sealed partial class EditorApp
         try { startLeft = Console.CursorLeft; startTop = Console.CursorTop; }
         catch { startLeft = 0; startTop = 0; }
         int scrollStart = 0; // index in buffer where the viewport starts
+        int lastW = 0, lastH = 0;
+        try { lastW = Console.WindowWidth; lastH = Console.WindowHeight; } catch { lastW = 0; lastH = 0; }
 
         // History navigation state
         int histIndex = history?.Count ?? 0; // one past the last (bottom slot)
@@ -761,7 +763,30 @@ internal sealed partial class EditorApp
 
         while (true)
         {
-            var key = Console.ReadKey(intercept: true);
+            // Auto-refresh on console resize
+            try
+            {
+                int w = Console.WindowWidth, h = Console.WindowHeight;
+                if ((w != lastW || h != lastH) && onRepaint is not null)
+                {
+                    lastW = w; lastH = h;
+                    var pos = onRepaint();
+                    startLeft = pos.Left; startTop = pos.Top;
+                }
+            }
+            catch { }
+
+            ConsoleKeyInfo key;
+            if (Console.KeyAvailable)
+            {
+                key = Console.ReadKey(intercept: true);
+            }
+            else
+            {
+                // Small sleep to avoid busy-spin when waiting for resize
+                try { System.Threading.Thread.Sleep(50); } catch { }
+                continue;
+            }
             // Ctrl+C pressed -> signal to caller
             if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.C)
             {
