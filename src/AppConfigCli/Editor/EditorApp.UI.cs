@@ -43,13 +43,61 @@ internal sealed partial class EditorApp
         // Layout calculation via Core UI helper (map UI -> Core items)
         var layoutMapper = new EditorMappers();
         var coreVisible = visible.Select(layoutMapper.ToCoreItem).ToList();
-        TableLayout.Compute(width, includeValue, coreVisible, out var keyWidth, out var labelWidth, out var valueWidth);
+        bool showLabelColumn = Label is null; // Hide label column when label filter is active
+        int keyWidth, labelWidth, valueWidth;
+        if (showLabelColumn)
+        {
+            TableLayout.Compute(width, includeValue, coreVisible, out keyWidth, out labelWidth, out valueWidth);
+        }
+        else
+        {
+            // Compute layout without a label column to free space for key/value
+            const int minKey = 15;
+            const int maxKey = 80;
+            const int minValue = 10;
+            int indexDigits = Math.Max(3, coreVisible.Count.ToString().Length);
+            int fixedChars = includeValue ? (indexDigits + 7) : (indexDigits + 5); // idx + spaces/state + separators before value
+            int available = width - fixedChars;
+            int longestKey = coreVisible.Select(i => i.ShortKey.Length).DefaultIfEmpty(minKey).Max();
+            labelWidth = 0;
+            if (includeValue)
+            {
+                if (available < minKey + minValue)
+                {
+                    available = minKey + minValue; // ensure non-negative allocations
+                }
+                int maxKeyAllowed = Math.Min(maxKey, Math.Max(minKey, available - minValue));
+                keyWidth = Math.Clamp(longestKey, minKey, maxKeyAllowed);
+                valueWidth = Math.Max(1, available - keyWidth);
+                if (valueWidth < minValue)
+                {
+                    int shortage = minValue - valueWidth;
+                    keyWidth = Math.Max(minKey, keyWidth - shortage);
+                    valueWidth = Math.Max(1, available - keyWidth);
+                }
+            }
+            else
+            {
+                keyWidth = Math.Clamp(longestKey, minKey, Math.Min(maxKey, available));
+                valueWidth = 0;
+            }
+        }
 
         Console.WriteLine(new string('-', width));
-        if (includeValue)
-            Console.WriteLine($"Idx  S  {PadColumn("Key", keyWidth)}  {PadColumn("Label", labelWidth)}  Value");
+        if (showLabelColumn)
+        {
+            if (includeValue)
+                Console.WriteLine($"Idx  S  {PadColumn("Key", keyWidth)}  {PadColumn("Label", labelWidth)}  Value");
+            else
+                Console.WriteLine($"Idx  S  {PadColumn("Key", keyWidth)}  {PadColumn("Label", labelWidth)}");
+        }
         else
-            Console.WriteLine($"Idx  S  {PadColumn("Key", keyWidth)}  {PadColumn("Label", labelWidth)}");
+        {
+            if (includeValue)
+                Console.WriteLine($"Idx  S  {PadColumn("Key", keyWidth)}  Value");
+            else
+                Console.WriteLine($"Idx  S  {PadColumn("Key", keyWidth)}");
+        }
         Console.WriteLine(new string('-', width));
 
         int start = 0;
@@ -81,9 +129,12 @@ internal sealed partial class EditorApp
             // Key (colored)
             if (Theme.Enabled) WriteColoredFixed(keyDisp, keyWidth); else Console.Write(PadColumn(keyDisp, keyWidth));
             Console.ForegroundColor = Theme.Default;
-            Console.Write("  ");
-            // Label (unstyled)
-            Console.Write(PadColumn(labelDisp, labelWidth));
+            if (showLabelColumn)
+            {
+                Console.Write("  ");
+                // Label (unstyled)
+                Console.Write(PadColumn(labelDisp, labelWidth));
+            }
 
             if (valueWidth > 0)
             {
