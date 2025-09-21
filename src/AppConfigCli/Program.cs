@@ -598,6 +598,10 @@ internal sealed partial class EditorApp
         _pageIndex = Math.Min(pageCount - 1, _pageIndex + 1);
     }
 
+    // Allow commands to trigger paging during custom prompts
+    internal void PageUpCommand() => PageUp();
+    internal void PageDownCommand() => PageDown();
+
     public async Task LoadAsync()
     {
         // Build server snapshot
@@ -1007,6 +1011,84 @@ internal sealed partial class EditorApp
                 buffer.Insert(cursor, key.KeyChar);
                 cursor++;
                 if (histIndex == (history?.Count ?? 0)) draft = buffer.ToString();
+                Render();
+                continue;
+            }
+        }
+    }
+
+    // Simpler input reader for command prompts: supports ESC/Ctrl+C cancel and PageUp/PageDown via callbacks
+    internal static (bool Cancelled, string? Text) ReadLineWithPagingCancelable(
+        Func<(int Left, int Top)> onRepaint,
+        Action onPageUp,
+        Action onPageDown)
+    {
+        var buffer = new StringBuilder();
+        int startLeft, startTop;
+        try { startLeft = Console.CursorLeft; startTop = Console.CursorTop; }
+        catch { startLeft = 0; startTop = 0; }
+
+        void Render()
+        {
+            try { Console.SetCursorPosition(startLeft, startTop); } catch { }
+            var text = buffer.ToString();
+            Console.Write(text);
+            // Clear any trailing remnants by writing a space and moving back
+            Console.Write(' ');
+            try { Console.SetCursorPosition(startLeft + text.Length, startTop); } catch { }
+        }
+
+        Render();
+        while (true)
+        {
+            ConsoleKeyInfo key;
+            if (Console.KeyAvailable)
+                key = Console.ReadKey(intercept: true);
+            else { try { System.Threading.Thread.Sleep(25); } catch { } continue; }
+
+            // Cancel keys
+            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.C)
+            {
+                Console.WriteLine();
+                return (true, null);
+            }
+            if (key.Key == ConsoleKey.Escape)
+            {
+                Console.WriteLine();
+                return (true, null);
+            }
+
+            // Paging
+            if (key.Key == ConsoleKey.PageUp || key.Key == ConsoleKey.PageDown)
+            {
+                try { if (key.Key == ConsoleKey.PageUp) onPageUp(); else onPageDown(); } catch { }
+                try
+                {
+                    var pos = onRepaint();
+                    startLeft = pos.Left; startTop = pos.Top;
+                }
+                catch { }
+                Render();
+                continue;
+            }
+
+            if (key.Key == ConsoleKey.Enter)
+            {
+                Console.WriteLine();
+                return (false, buffer.ToString());
+            }
+            if (key.Key == ConsoleKey.Backspace)
+            {
+                if (buffer.Length > 0)
+                {
+                    buffer.Remove(buffer.Length - 1, 1);
+                    Render();
+                }
+                continue;
+            }
+            if (!char.IsControl(key.KeyChar))
+            {
+                buffer.Append(key.KeyChar);
                 Render();
                 continue;
             }

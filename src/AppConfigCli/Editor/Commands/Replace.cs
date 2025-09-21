@@ -42,9 +42,22 @@ internal partial record Command
             app.ValueHighlightRegex = rx;
             app.Repaint();
 
-            // 2) Prompt for replacement text
+            // 2) Prompt for replacement text, allow paging during input
             Console.WriteLine("Enter replacement text (supports $1, $2 for capture groups):");
-            var replacement = ReadLineCancelable();
+            Console.Write("> ");
+            var replResult = EditorApp.ReadLineWithPagingCancelable(
+                onRepaint: () =>
+                {
+                    app.Repaint();
+                    Console.WriteLine("Enter replacement text (supports $1, $2 for capture groups):");
+                    Console.Write("> ");
+                    int left, top; try { left = Console.CursorLeft; top = Console.CursorTop; } catch { left = 0; top = 0; }
+                    return (left, top);
+                },
+                onPageUp: () => app.PageUpCommand(),
+                onPageDown: () => app.PageDownCommand()
+            );
+            string? replacement = replResult.Cancelled ? null : replResult.Text;
             // Clear preview highlight regardless of outcome
             app.ValueHighlightRegex = null;
             if (replacement is null) return Task.FromResult(new CommandResult());
