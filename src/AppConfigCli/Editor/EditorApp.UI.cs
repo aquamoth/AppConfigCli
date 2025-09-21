@@ -37,9 +37,8 @@ internal sealed partial class EditorApp
             Console.WriteLine(title);
         }
 
-        // Render header rows under the title
-        foreach (var line in headerLines)
-            Console.WriteLine(line);
+        // Render header rows under the title with colored values
+        RenderFilterHeader(width);
 
         // Layout calculation via Core UI helper (map UI -> Core items)
         var layoutMapper = new EditorMappers();
@@ -279,6 +278,180 @@ internal sealed partial class EditorApp
     // Expose header line count for paging during prompt PageUp/PageDown
     internal int GetHeaderLineCountForWidth(int width)
         => BuildFilterHeaderLines(width).Count;
+
+    private void WriteColored(string text)
+    {
+        var prev = Console.ForegroundColor;
+        for (int i = 0; i < text.Length; i++)
+        {
+            var ch = text[i];
+            var color = ClassifyColor(ch);
+            if (Console.ForegroundColor != color) Console.ForegroundColor = color;
+            Console.Write(ch);
+        }
+        if (Console.ForegroundColor != prev) Console.ForegroundColor = prev;
+    }
+
+    private void RenderFilterHeader(int width)
+    {
+        // Determine active filters
+        string? p = string.IsNullOrWhiteSpace(Prefix) ? null : $"Prefix: {Prefix}";
+        string? l = Label is null ? null : $"Label: {(Label.Length == 0 ? "(none)" : Label)}";
+        string? f = string.IsNullOrEmpty(KeyRegexPattern) ? null : $"Filter: {KeyRegexPattern}";
+
+        if (p is null && l is null && f is null) return;
+
+        int startTop;
+        try { startTop = Console.CursorTop; }
+        catch { startTop = 1; }
+
+        const int gap = 2;
+
+        // Locals for rendering one line composed of segments at positions
+        void RenderLine(int top, params (int pos, string text)[] segments)
+        {
+            // Clear the line area first
+            try
+            {
+                Console.SetCursorPosition(0, top);
+                Console.Write(new string(' ', Math.Max(0, width)));
+            }
+            catch { }
+            foreach (var seg in segments)
+            {
+                if (seg.pos < 0 || seg.pos >= width) continue;
+                try { Console.SetCursorPosition(seg.pos, top); }
+                catch { }
+                // Split label/value at first ": "
+                var text = seg.text;
+                int idx = text.IndexOf(": ", StringComparison.Ordinal);
+                if (idx >= 0 && Theme.Enabled)
+                {
+                    Console.Write(text.Substring(0, idx + 2));
+                    var val = text.Substring(idx + 2);
+                    WriteColored(val);
+                }
+                else
+                {
+                    Console.Write(text);
+                }
+            }
+        }
+
+        // Helper to try all 3 on one line (Prefix left, Label center, Filter right)
+        bool TryAllThree(string pp, string ll, string ff)
+        {
+            int pLen = pp.Length, lLen = ll.Length, fLen = ff.Length;
+            if (pLen + gap + fLen > width) return false;
+            int rightStart = width - fLen;
+            int centerStart = Math.Max(pLen + gap, (width - lLen) / 2);
+            if (centerStart + lLen + gap > rightStart) return false;
+            RenderLine(startTop, (0, pp), (centerStart, ll), (rightStart, ff));
+            return true;
+        }
+
+        // Helper for two segments left/right on one line
+        bool TryLeftRight(int top, string left, string right)
+        {
+            if (left.Length + gap + right.Length > width) return false;
+            int rightStart = width - right.Length;
+            if (rightStart < left.Length + gap) return false;
+            RenderLine(top, (0, left), (rightStart, right));
+            return true;
+        }
+
+        int line = 0;
+        if (p is not null && l is not null && f is not null)
+        {
+            if (TryAllThree(p, l, f))
+            {
+                line += 1; // rendered one line
+            }
+            else if (TryLeftRight(startTop + line, p, l))
+            {
+                line += 1;
+                RenderLine(startTop + line, (0, f));
+                line += 1;
+            }
+            else if (TryLeftRight(startTop + line, l, f))
+            {
+                line += 1;
+                RenderLine(startTop + line, (0, p));
+                line += 1;
+            }
+            else
+            {
+                RenderLine(startTop + line, (0, p)); line++;
+                RenderLine(startTop + line, (0, l)); line++;
+                RenderLine(startTop + line, (0, f)); line++;
+            }
+        }
+        else
+        {
+            var present = new List<string>();
+            if (p is not null) present.Add(p);
+            if (l is not null) present.Add(l);
+            if (f is not null) present.Add(f);
+
+            if (present.Count == 1)
+            {
+                if (p is null && l is not null && present[0] == l)
+                {
+                    int centerStart = Math.Max(0, (width - l.Length) / 2);
+                    RenderLine(startTop + line, (centerStart, l));
+                    line++;
+                }
+                else
+                {
+                    RenderLine(startTop + line, (0, present[0]));
+                    line++;
+                }
+            }
+            else if (present.Count == 2)
+            {
+                if (p is null && l is not null && f is not null)
+                {
+                    int fStart = width - f.Length;
+                    int lStart = Math.Max(0, (width - l.Length) / 2);
+                    if (lStart + l.Length + gap <= fStart)
+                    {
+                        RenderLine(startTop + line, (lStart, l), (fStart, f));
+                        line++;
+                    }
+                    else if (TryLeftRight(startTop + line, l, f))
+                    {
+                        line++;
+                    }
+                    else if (TryLeftRight(startTop + line, f, l))
+                    {
+                        line++;
+                    }
+                    else
+                    {
+                        RenderLine(startTop + line, (0, l)); line++;
+                        RenderLine(startTop + line, (0, f)); line++;
+                    }
+                }
+                else
+                {
+                    var a = present[0];
+                    var b = present[1];
+                    if (TryLeftRight(startTop + line, a, b)) line++;
+                    else if (TryLeftRight(startTop + line, b, a)) line++;
+                    else { RenderLine(startTop + line, (0, a)); line++; RenderLine(startTop + line, (0, b)); line++; }
+                }
+            }
+        }
+
+        // After rendering, position cursor at the start of the next line so subsequent
+        // Console.WriteLine writes begin on a fresh line even if we wrote with SetCursorPosition.
+        try
+        {
+            int renderedLines = BuildFilterHeaderLines(width).Count;
+            Console.SetCursorPosition(0, startTop + renderedLines);
+        }
+        catch { }
+    }
 
     private static string PadColumn(string text, int width)
     {
