@@ -31,7 +31,12 @@ internal partial record Command
                 Console.WriteLine();
             }
 
-            WriteHeaderRow(labelAuthor, "Mattias Åslund", isUrl: false);
+            // Author row: name + personal GitHub link
+            var paddedAuthor = labelAuthor.PadRight(labelWidth);
+            Console.Write(paddedAuthor + " ");
+            Console.Write("Mattias Åslund ");
+            WriteUrl(app, "https://github.com/aquamoth");
+            Console.WriteLine();
             WriteHeaderRow(labelProject, "https://github.com/aquamoth/AppConfigCli", isUrl: true);
             WriteHeaderRow(labelLicense, "https://www.apache.org/licenses/LICENSE-2.0", isUrl: true);
             Console.WriteLine();
@@ -49,9 +54,11 @@ internal partial record Command
             WriteWrappedRow("PageUp/PageDown key", "Change page when list is longer than screen");
             Console.WriteLine();
 
-            // Editing group (sorted)
-            Console.WriteLine("Editing");
-            var editAliases = new[] { "add", "edit", "delete", "copy", "save", "undo" };
+            // Inline editing group (numeric edit first)
+            Console.WriteLine("Inline editing");
+            // Numeric edit hint (no short alias; indent 5 spaces) shown before other items
+            WriteWrappedRow("     <n>", "Edit value of item number n");
+            var editAliases = new[] { "add", /* "edit" removed: numeric input edits */ "delete", "copy", "save", "undo" };
             var editSpecs = editAliases.Select(a => FindSpec(a)).Where(s => s is not null)!.Cast<Command.CommandSpec>()
                 .OrderBy(s => LongAlias(s), StringComparer.OrdinalIgnoreCase);
             foreach (var s in editSpecs)
@@ -60,8 +67,8 @@ internal partial record Command
             WriteWrappedRow("Up/Down key", "Browse command history at the prompt");
             Console.WriteLine();
 
-            // External group (sorted)
-            Console.WriteLine("External");
+            // External editor group (sorted)
+            Console.WriteLine("Edit in external editor");
             var externalAliases = new[] { "open", "json", "yaml" };
             var externalSpecs = externalAliases.Select(a => FindSpec(a)).Where(s => s is not null)!.Cast<Command.CommandSpec>()
                 .OrderBy(s => LongAlias(s), StringComparer.OrdinalIgnoreCase);

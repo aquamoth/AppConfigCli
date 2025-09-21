@@ -20,9 +20,9 @@ public class CommandParserTests
     }
 
     [Theory]
-    [InlineData("edit 3", 3)]
-    [InlineData("e 10", 10)]
-    public void Parses_edit_with_index(string input, int idx)
+    [InlineData("3", 3)]
+    [InlineData("10", 10)]
+    public void Parses_numeric_edit_with_index(string input, int idx)
     {
         AppConfigCli.CommandParser.TryParse(input, out var cmd, out var err).Should().BeTrue();
         cmd.Should().BeOfType<AppConfigCli.Command.Edit>();

@@ -39,7 +39,6 @@ internal abstract partial record Command
     public static IReadOnlyList<CommandSpec> AllSpecs =>
     [
         Add.Spec,
-        Edit.Spec,
         Delete.Spec,
         Copy.Spec,
         Label.Spec,
@@ -56,4 +55,3 @@ internal abstract partial record Command
         WhoAmI.Spec,
     ];
 }
-

@@ -1,4 +1,5 @@
 using System;
+using System.Globalization;
 using System.Linq;
 
 namespace AppConfigCli;
@@ -31,7 +32,15 @@ internal static class CommandParser
     {
         command = null; error = null;
         if (string.IsNullOrWhiteSpace(input)) { error = ""; return false; }
-        var parts = input.Trim().Split(' ', StringSplitOptions.RemoveEmptyEntries);
+        var trimmed = input.Trim();
+        // Numeric command -> Edit that index
+        if (int.TryParse(trimmed, NumberStyles.Integer, CultureInfo.InvariantCulture, out var numericIndex))
+        {
+            command = new Command.Edit(numericIndex);
+            return true;
+        }
+
+        var parts = trimmed.Split(' ', StringSplitOptions.RemoveEmptyEntries);
         if (parts.Length == 0) { error = ""; return false; }
 
         var cmdToken = parts[0];
@@ -51,4 +60,3 @@ internal static class CommandParser
 
     // Range parsing now lives in Command.TryParseRange via individual command Specs
 }
-
