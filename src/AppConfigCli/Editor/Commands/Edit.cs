@@ -41,8 +41,12 @@ internal partial record Command
             WriteColoredInline(item.ShortKey, app.Theme);
             Console.Write("' [" + label + "]  (Enter to save)\n");
             Console.Write("> ");
-
-            var newVal = ReadLineWithInitial(item.Value ?? string.Empty, app.Theme);
+            var res = EditorApp.ReadLineWithPagingCancelable(
+                onRepaint: () => { int l, t; try { l = Console.CursorLeft; t = Console.CursorTop; } catch { l = 0; t = 0; } return (l, t); },
+                onPageUp: () => { },
+                onPageDown: () => { },
+                initial: item.Value ?? string.Empty);
+            var newVal = res.Cancelled ? null : res.Text;
             if (newVal is not null)
             {
                 item.Value = newVal;

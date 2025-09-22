@@ -30,7 +30,8 @@ internal partial record Command
                     return (left, top);
                 },
                 onPageUp: () => app.PageUpCommand(),
-                onPageDown: () => app.PageDownCommand()
+                onPageDown: () => app.PageDownCommand(),
+                initial: null
             );
             var pattern = patResult.Cancelled ? null : patResult.Text;
             if (pattern is null) return Task.FromResult(new CommandResult());
@@ -68,7 +69,8 @@ internal partial record Command
                     return (left, top);
                 },
                 onPageUp: () => app.PageUpCommand(),
-                onPageDown: () => app.PageDownCommand()
+                onPageDown: () => app.PageDownCommand(),
+                initial: null
             );
             string? replacement = replResult.Cancelled ? null : replResult.Text;
             // Clear preview highlight regardless of outcome

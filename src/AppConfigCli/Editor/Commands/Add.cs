@@ -54,7 +54,13 @@ internal partial record Command
             }
 
             Console.WriteLine("Enter value:");
-            var v = ReadLineCancelable();
+            Console.Write("> ");
+            var vRes = EditorApp.ReadLineWithPagingCancelable(
+                onRepaint: () => { int l, t; try { l = Console.CursorLeft; t = Console.CursorTop; } catch { l = 0; t = 0; } return (l, t); },
+                onPageUp: () => { },
+                onPageDown: () => { },
+                initial: string.Empty);
+            var v = vRes.Cancelled ? null : vRes.Text;
             if (v is null) return Task.FromResult(new CommandResult());
             v ??= string.Empty;
             var basePrefix = app.Prefix ?? string.Empty;
