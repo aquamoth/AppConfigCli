@@ -43,7 +43,7 @@ internal class Program
         {
             // Fallback to AAD auth via endpoint + interactive/device/browser auth
             var tenantId = options.TenantId ?? Environment.GetEnvironmentVariable("AZURE_TENANT_ID");
-            var credential = BuildCredential(tenantId, options.Auth);
+            var credential = await BuildCredentialAsync(tenantId, options.Auth);
 
             var endpoint = options.Endpoint ?? Environment.GetEnvironmentVariable("APP_CONFIG_ENDPOINT");
             if (string.IsNullOrWhiteSpace(endpoint))
@@ -95,7 +95,7 @@ internal class Program
         }
     }
 
-    private static TokenCredential BuildCredential(string? tenantId, string? authMode)
+    private static async Task<TokenCredential> BuildCredentialAsync(string? tenantId, string? authMode)
     {
         var browser = new InteractiveBrowserCredential(new InteractiveBrowserCredentialOptions
         {
@@ -132,16 +132,53 @@ internal class Program
             case null:
             case "auto":
             default:
-                bool isWsl = IsWsl();
-                bool hasDisplay = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY"));
-                if (isWsl || (!OperatingSystem.IsWindows() && !hasDisplay))
+                var plan = await SelectAutoAuthPlanAsync(cli);
+                return plan switch
                 {
-                    return new ChainedTokenCredential(device, browser, cli, vsc);
-                }
-                else
-                {
-                    return new ChainedTokenCredential(browser, device, cli, vsc);
-                }
+                    AutoAuthPlan.Cli => cli,
+                    AutoAuthPlan.DeviceOnly => device,
+                    _ => new ChainedTokenCredential(browser, device)
+                };
+        }
+    }
+
+    // Determines the auto-auth plan: prefer CLI if logged in; otherwise browser (non-WSL/headless) with device fallback; device-only on WSL/headless
+    internal enum AutoAuthPlan { Cli, BrowserThenDevice, DeviceOnly }
+
+    internal static async Task<AutoAuthPlan> SelectAutoAuthPlanAsync(AzureCliCredential cli)
+    {
+        // Try CLI silently first
+        if (await IsCliLoggedInAsync(cli))
+            return AutoAuthPlan.Cli;
+
+        bool isWsl = IsWsl();
+        bool headlessLinux = OperatingSystem.IsLinux() && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY"));
+        if (isWsl || headlessLinux)
+            return AutoAuthPlan.DeviceOnly;
+
+        return AutoAuthPlan.BrowserThenDevice;
+    }
+
+    internal static AutoAuthPlan SelectAutoAuthPlanForTests(bool cliLoggedIn, bool isWsl, bool hasDisplay)
+    {
+        if (cliLoggedIn) return AutoAuthPlan.Cli;
+        bool headlessLinux = !OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS() && !hasDisplay; // tests provide hasDisplay
+        if (isWsl || headlessLinux) return AutoAuthPlan.DeviceOnly;
+        return AutoAuthPlan.BrowserThenDevice;
+    }
+
+    private static async Task<bool> IsCliLoggedInAsync(AzureCliCredential cli)
+    {
+        try
+        {
+            // Probe with azconfig scope; CLI does not prompt
+            var ctx = new TokenRequestContext(new[] { "https://azconfig.io/.default" });
+            await cli.GetTokenAsync(ctx, default);
+            return true;
+        }
+        catch
+        {
+            return false;
         }
     }
 
