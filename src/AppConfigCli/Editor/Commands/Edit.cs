@@ -2,11 +2,9 @@ using System.Globalization;
 using System.Text;
 using System.Threading.Tasks;
 
-namespace AppConfigCli;
+namespace AppConfigCli.Editor.Commands;
 
-internal partial record Command
-{
-    public sealed record Edit(int Index) : Command
+internal sealed record Edit(int Index) : Command
     {
         public static CommandSpec Spec => new CommandSpec
         {
@@ -267,4 +265,3 @@ internal partial record Command
             static bool IsWordChar(char c) => char.IsLetterOrDigit(c);
         }
     }
-}

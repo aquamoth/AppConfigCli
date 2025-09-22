@@ -1,0 +1,11 @@
+{
+  "profiles": {
+    "AppConfigCli": {
+      "commandName": "Project",
+      "commandLineArgs": "--auth cli",
+      "environmentVariables": {
+        "APP_CONFIG_ENDPOINT": "https://sh-neu-app-config.azconfig.io"
+      }
+    }
+  }
+}

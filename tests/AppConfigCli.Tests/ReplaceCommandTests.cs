@@ -27,7 +27,7 @@ public class ReplaceCommandTests
         await app.LoadAsync();
 
         var rx = new Regex("Hello", RegexOptions.Compiled);
-        var (items, matches) = AppConfigCli.Command.Replace.ApplyReplace(app, rx, "Hi");
+        var (items, matches) = AppConfigCli.Editor.Commands.Replace.ApplyReplace(app, rx, "Hi");
 
         items.Should().Be(1); // Greeting only
         matches.Should().Be(2);
@@ -52,7 +52,7 @@ public class ReplaceCommandTests
         await app.LoadAsync();
 
         var rx = new Regex("([a-z])/([a-z])/([a-z])", RegexOptions.Compiled);
-        var result = AppConfigCli.Command.Replace.ApplyReplace(app, rx, "$3-$2-$1");
+        var result = AppConfigCli.Editor.Commands.Replace.ApplyReplace(app, rx, "$3-$2-$1");
         result.ItemsAffected.Should().Be(1);
         result.TotalMatches.Should().Be(1);
         var item = app.Test_Items.Single(i => i.ShortKey == "Path");
@@ -71,7 +71,7 @@ public class ReplaceCommandTests
         note.State = ItemState.Deleted;
 
         var rx = new Regex("unchanged", RegexOptions.Compiled);
-        var r = AppConfigCli.Command.Replace.ApplyReplace(app, rx, "changed");
+        var r = AppConfigCli.Editor.Commands.Replace.ApplyReplace(app, rx, "changed");
         r.ItemsAffected.Should().Be(0);
         r.TotalMatches.Should().Be(0);
         note.Value.Should().Be("unchanged");

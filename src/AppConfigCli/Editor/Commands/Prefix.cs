@@ -1,40 +1,37 @@
 using System.Text;
 
-namespace AppConfigCli;
+namespace AppConfigCli.Editor.Commands;
 
-internal partial record Command
+internal sealed record Prefix(string? Value, bool Prompt) : Command
 {
-    public sealed record Prefix(string? Value, bool Prompt) : Command
+    public static CommandSpec Spec => new CommandSpec
     {
-        public static CommandSpec Spec => new CommandSpec
+        Aliases = new[] { "p", "prefix" },
+        Summary = "p|prefix [value]",
+        Usage = "Usage: p|prefix [value]  (no arg prompts)",
+        Description = "Change prefix (no arg prompts)",
+        Parser = args => args.Length == 0 ? (true, new Prefix(null, Prompt: true), null) : (true, new Prefix(string.Join(' ', args), Prompt: false), null)
+    };
+    public override async Task<CommandResult> ExecuteAsync(EditorApp app)
+    {
+        string[] args = Prompt ? [] : [Value ?? string.Empty];
+        string? newPrefix = null;
+        if (args.Length == 0)
         {
-            Aliases = new[] { "p", "prefix" },
-            Summary = "p|prefix [value]",
-            Usage = "Usage: p|prefix [value]  (no arg prompts)",
-            Description = "Change prefix (no arg prompts)",
-            Parser = args => args.Length == 0 ? (true, new Prefix(null, Prompt: true), null) : (true, new Prefix(string.Join(' ', args), Prompt: false), null)
-        };
-        public override async Task<CommandResult> ExecuteAsync(EditorApp app)
-        {
-            string[] args = Prompt ? [] : [Value ?? string.Empty];
-            string? newPrefix = null;
-            if (args.Length == 0)
-            {
-                Console.WriteLine("Enter new prefix (empty for all keys):");
-                var prefixes = await app.GetPrefixCandidatesAsync().ConfigureAwait(false);
-                var typed = ReadLineWithAutocomplete(prefixes, app.Theme);
-                if (typed is null) return new CommandResult(); // ESC cancels
-                newPrefix = typed;
-            }
-            else
-            {
-                newPrefix = string.Join(' ', args).Trim();
-            }
-
-            app.Prefix = newPrefix; // can be empty string to mean 'all keys'
-            await app.LoadAsync();
-            return new CommandResult();
+            Console.WriteLine("Enter new prefix (empty for all keys):");
+            var prefixes = await app.GetPrefixCandidatesAsync().ConfigureAwait(false);
+            var typed = ReadLineWithAutocomplete(prefixes, app.Theme);
+            if (typed is null) return new CommandResult(); // ESC cancels
+            newPrefix = typed;
         }
+        else
+        {
+            newPrefix = string.Join(' ', args).Trim();
+        }
+
+        app.Prefix = newPrefix; // can be empty string to mean 'all keys'
+        await app.LoadAsync();
+        return new CommandResult();
     }
 
     private static string? ReadLineWithAutocomplete(IReadOnlyCollection<string> candidates, ConsoleTheme theme)

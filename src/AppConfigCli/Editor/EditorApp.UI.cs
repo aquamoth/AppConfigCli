@@ -514,7 +514,7 @@ internal sealed class EditorApp
                     onPageDown: () => PageDown());
                 if (ctrlC)
                 {
-                    var quit = new Command.Quit();
+                    var quit = new Editor.Commands.Quit();
                     var shouldExit = await quit.TryQuitAsync(this);
                     if (shouldExit) return;
                     // back to main screen

@@ -1,136 +1,133 @@
 using System.Globalization;
 
-namespace AppConfigCli;
+namespace AppConfigCli.Editor.Commands;
 
-internal partial record Command
+internal sealed record Undo(int Start, int End) : Command
 {
-    public sealed record Undo(int Start, int End) : Command
+    public static CommandSpec Spec => new CommandSpec
     {
-        public static CommandSpec Spec => new CommandSpec
+        Aliases = new[] { "u", "undo" },
+        Summary = "u|undo <n> [m]|all",
+        Usage = "Usage: u|undo <n> [m] | all",
+        Description = "Undo local changes for rows n..m, or 'all' to undo everything",
+        Parser = args =>
         {
-            Aliases = new[] { "u", "undo" },
-            Summary = "u|undo <n> [m]|all",
-            Usage = "Usage: u|undo <n> [m] | all",
-            Description = "Undo local changes for rows n..m, or 'all' to undo everything",
-            Parser = args =>
-            {
-                if (args.Length == 1 && string.Equals(args[0], "all", StringComparison.OrdinalIgnoreCase))
-                    return (true, new Undo(-1, -1), null);
-                var (ok, s, e, err) = TryParseRange(args, "Usage: u|undo <n> [m] | all");
-                return ok ? (true, new Undo(s, e), null) : (false, null, err);
-            }
-        };
+            if (args.Length == 1 && string.Equals(args[0], "all", StringComparison.OrdinalIgnoreCase))
+                return (true, new Undo(-1, -1), null);
+            var (ok, s, e, err) = TryParseRange(args, "Usage: u|undo <n> [m] | all");
+            return ok ? (true, new Undo(s, e), null) : (false, null, err);
+        }
+    };
 
-        public override Task<CommandResult> ExecuteAsync(EditorApp app)
+    public override Task<CommandResult> ExecuteAsync(EditorApp app)
+    {
+        var args = Start == End
+            ? Start == -1
+                ? ["all"]
+                : [Start.ToString(CultureInfo.InvariantCulture)]
+            : new[] { Start.ToString(CultureInfo.InvariantCulture), End.ToString(CultureInfo.InvariantCulture) };
+        UndoFn(app, args);
+        return Task.FromResult(new CommandResult());
+    }
+
+
+    internal void UndoFn(EditorApp app, string[] args)
+    {
+        if (args.Length == 0)
         {
-            var args = Start == End
-                ? Start == -1
-                    ? ["all"]
-                    : [Start.ToString(CultureInfo.InvariantCulture)]
-                : new[] { Start.ToString(CultureInfo.InvariantCulture), End.ToString(CultureInfo.InvariantCulture) };
-            UndoFn(app, args);
-            return Task.FromResult(new CommandResult());
+            Console.WriteLine("Usage: u|undo <n> [m]  (undos rows n..m)");
+            Console.WriteLine("Press Enter to continue...");
+            Console.ReadLine();
+            return;
         }
 
-
-        internal void UndoFn(EditorApp app, string[] args)
+        if (args.Length == 1 && string.Equals(args[0], "all", StringComparison.OrdinalIgnoreCase))
         {
-            if (args.Length == 0)
-            {
-                Console.WriteLine("Usage: u|undo <n> [m]  (undos rows n..m)");
-                Console.WriteLine("Press Enter to continue...");
-                Console.ReadLine();
-                return;
-            }
+            UndoAll(app);
+        }
+        else
+        {
+            UndoRange(app, args);
+        }
+    }
 
-            if (args.Length == 1 && string.Equals(args[0], "all", StringComparison.OrdinalIgnoreCase))
+    internal bool UndoRange(EditorApp app, string[] args)
+    {
+        if (!int.TryParse(args[0], out int start)) { Console.WriteLine("First argument must be an index or 'all'."); Console.ReadLine(); return false; }
+        int end = start;
+        if (args.Length >= 2 && int.TryParse(args[1], out int endParsed)) end = endParsed;
+        var actualIndices = app.MapVisibleRangeToItemIndices(start, end, out var error);
+        if (actualIndices is null)
+        {
+            Console.WriteLine(error);
+            Console.ReadLine();
+            return false;
+        }
+
+        int removedNew = 0, restored = 0, untouched = 0;
+        foreach (var idx in actualIndices.OrderByDescending(i => i))
+        {
+            if (idx < 0 || idx >= app.Items.Count) { continue; }
+            var item = app.Items[idx];
+            if (item.IsNew)
             {
-                UndoAll(app);
+                app.Items.RemoveAt(idx);
+                removedNew++;
+            }
+            else if (item.State == ItemState.Deleted)
+            {
+                item.State = ItemState.Unchanged;
+                restored++;
+            }
+            else if (item.State == ItemState.Modified)
+            {
+                item.Value = item.OriginalValue;
+                item.State = ItemState.Unchanged;
+                restored++;
             }
             else
             {
-                UndoRange(app, args);
+                untouched++;
             }
         }
 
-        internal bool UndoRange(EditorApp app, string[] args)
+        Console.WriteLine($"Undo selection: removed {removedNew} new item(s), restored {restored} item(s), untouched {untouched}.");
+        Console.WriteLine("Press Enter to continue...");
+        Console.ReadLine();
+        return true;
+    }
+
+    internal void UndoAll(EditorApp app)
+    {
+        int removedNew = 0, restored = 0, untouched = 0;
+        // Iterate descending to safely remove new items
+        for (int idx = app.Items.Count - 1; idx >= 0; idx--)
         {
-            if (!int.TryParse(args[0], out int start)) { Console.WriteLine("First argument must be an index or 'all'."); Console.ReadLine(); return false; }
-            int end = start;
-            if (args.Length >= 2 && int.TryParse(args[1], out int endParsed)) end = endParsed;
-            var actualIndices = app.MapVisibleRangeToItemIndices(start, end, out var error);
-            if (actualIndices is null)
+            var item = app.Items[idx];
+            if (item.IsNew)
             {
-                Console.WriteLine(error);
-                Console.ReadLine();
-                return false;
+                app.Items.RemoveAt(idx);
+                removedNew++;
             }
-
-            int removedNew = 0, restored = 0, untouched = 0;
-            foreach (var idx in actualIndices.OrderByDescending(i => i))
+            else if (item.State == ItemState.Deleted)
             {
-                if (idx < 0 || idx >= app.Items.Count) { continue; }
-                var item = app.Items[idx];
-                if (item.IsNew)
-                {
-                    app.Items.RemoveAt(idx);
-                    removedNew++;
-                }
-                else if (item.State == ItemState.Deleted)
-                {
-                    item.State = ItemState.Unchanged;
-                    restored++;
-                }
-                else if (item.State == ItemState.Modified)
-                {
-                    item.Value = item.OriginalValue;
-                    item.State = ItemState.Unchanged;
-                    restored++;
-                }
-                else
-                {
-                    untouched++;
-                }
+                item.State = ItemState.Unchanged;
+                restored++;
             }
-
-            Console.WriteLine($"Undo selection: removed {removedNew} new item(s), restored {restored} item(s), untouched {untouched}.");
-            Console.WriteLine("Press Enter to continue...");
-            Console.ReadLine();
-            return true;
+            else if (item.State == ItemState.Modified)
+            {
+                item.Value = item.OriginalValue;
+                item.State = ItemState.Unchanged;
+                restored++;
+            }
+            else
+            {
+                untouched++;
+            }
         }
 
-        internal void UndoAll(EditorApp app)
-        {
-            int removedNew = 0, restored = 0, untouched = 0;
-            // Iterate descending to safely remove new items
-            for (int idx = app.Items.Count - 1; idx >= 0; idx--)
-            {
-                var item = app.Items[idx];
-                if (item.IsNew)
-                {
-                    app.Items.RemoveAt(idx);
-                    removedNew++;
-                }
-                else if (item.State == ItemState.Deleted)
-                {
-                    item.State = ItemState.Unchanged;
-                    restored++;
-                }
-                else if (item.State == ItemState.Modified)
-                {
-                    item.Value = item.OriginalValue;
-                    item.State = ItemState.Unchanged;
-                    restored++;
-                }
-                else
-                {
-                    untouched++;
-                }
-            }
-
-            Console.WriteLine($"Undo all: removed {removedNew} new item(s), restored {restored} item(s), untouched {untouched}.");
-            Console.WriteLine("Press Enter to continue...");
-            Console.ReadLine();
-        }
+        Console.WriteLine($"Undo all: removed {removedNew} new item(s), restored {restored} item(s), untouched {untouched}.");
+        Console.WriteLine("Press Enter to continue...");
+        Console.ReadLine();
     }
 }
