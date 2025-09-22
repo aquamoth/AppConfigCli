@@ -19,9 +19,9 @@ internal sealed partial class EditorApp
         bool includeValue = width >= 60; // minimal width for value column
         var visible = GetVisibleItems();
 
-        // Build header lines for filters and compute paging height accordingly
-        var headerLines = BuildFilterHeaderLines(width);
-        ComputePaging(height, visible.Count, headerLines.Count, out var pageSize, out var pageCount);
+        // Compute header line count via shared layout service (no rendering here)
+        int headerLineCount = GetHeaderLineCountForWidth(width);
+        ComputePaging(height, visible.Count, headerLineCount, out var pageSize, out var pageCount);
         if (_pageIndex >= pageCount) _pageIndex = Math.Max(0, pageCount - 1);
         if (_pageIndex < 0) _pageIndex = 0;
         var pageText = pageCount > 1 ? $"PAGE {_pageIndex + 1}/{pageCount}" : string.Empty;
@@ -396,7 +396,12 @@ internal sealed partial class EditorApp
 
     // Expose header line count for paging during prompt PageUp/PageDown
     internal int GetHeaderLineCountForWidth(int width)
-        => BuildFilterHeaderLines(width).Count;
+    {
+        string? p = string.IsNullOrWhiteSpace(Prefix) ? null : $"Prefix: {Prefix}";
+        string? l = Label is null ? null : $"Label: {(Label.Length == 0 ? "(none)" : Label)}";
+        string? f = string.IsNullOrEmpty(KeyRegexPattern) ? null : $"Filter: {KeyRegexPattern}";
+        return HeaderLayout.Compute(width, p, l, f).Count;
+    }
 
     private void WriteColored(string text)
     {
