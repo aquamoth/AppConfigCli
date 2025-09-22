@@ -501,7 +501,7 @@ internal sealed partial class EditorApp
             while (true)
             {
                 Render();
-                var (ctrlC, input) = ReadLineOrCtrlC(
+                var (ctrlC, input) = ReadLineOrCtrlC_Engine(
                     CommandHistory,
                     onRepaint: () =>
                     {
@@ -946,6 +946,146 @@ internal sealed partial class EditorApp
             if (key.Key == ConsoleKey.Backspace) { engine.Backspace(); Render(); continue; }
             if (key.Key == ConsoleKey.Delete) { engine.Delete(); Render(); continue; }
             if (!char.IsControl(key.KeyChar)) { engine.Insert(key.KeyChar); Render(); continue; }
+        }
+    }
+
+    // Engine-backed line editor for the main prompt with history + viewport + paging
+    internal static (bool CtrlC, string? Text) ReadLineOrCtrlC_Engine(
+        List<string>? history = null,
+        Func<(int Left, int Top)>? onRepaint = null,
+        Action? onPageUp = null,
+        Action? onPageDown = null)
+    {
+        var engine = new LineEditorEngine();
+        engine.SetInitial(string.Empty);
+        int startLeft, startTop;
+        try { startLeft = Console.CursorLeft; startTop = Console.CursorTop; } catch { startLeft = 0; startTop = 0; }
+        int lastW = 0, lastH = 0; try { lastW = Console.WindowWidth; lastH = Console.WindowHeight; } catch { }
+
+        int histIndex = history?.Count ?? 0; // bottom slot
+        string draft = string.Empty;
+        bool modifiedFromHistory = false;
+
+        try
+        {
+            int avail = Math.Max(0, Console.WindowWidth - startLeft - 1);
+            if (avail < 10) { Console.WriteLine(); startLeft = 0; startTop = Console.CursorTop; }
+        }
+        catch { }
+
+        void Render()
+        {
+            int w; try { w = Console.WindowWidth; } catch { w = 80; }
+            int content = Math.Max(1, w - startLeft - 1);
+            engine.EnsureVisible(content);
+            var view = engine.GetView(content);
+            try
+            {
+                Console.SetCursorPosition(startLeft, startTop);
+                int vlen = Math.Min(view.Length, content);
+                if (vlen > 0) Console.Write(view[..vlen]);
+                if (vlen < content) Console.Write(new string(' ', content - vlen));
+                int cursorCol = startLeft + Math.Min(engine.Cursor - engine.ScrollStart, content - 1);
+                int safeCol = Math.Min(Math.Max(0, w - 1), Math.Max(0, cursorCol));
+                Console.SetCursorPosition(safeCol, startTop);
+            }
+            catch { }
+        }
+
+        Render();
+        while (true)
+        {
+            // Resize repaint
+            try
+            {
+                int w = Console.WindowWidth, h = Console.WindowHeight;
+                if ((w != lastW || h != lastH) && onRepaint is not null)
+                {
+                    lastW = w; lastH = h;
+                    var pos = onRepaint();
+                    startLeft = pos.Left; startTop = pos.Top;
+                }
+            }
+            catch { }
+
+            ConsoleKeyInfo key;
+            if (Console.KeyAvailable) key = Console.ReadKey(intercept: true); else { try { System.Threading.Thread.Sleep(50); } catch { } continue; }
+
+            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.C) { Console.WriteLine(); return (true, null); }
+            if (key.Key == ConsoleKey.Enter) { Console.WriteLine(); return (false, engine.Buffer.ToString()); }
+
+            if (key.Key == ConsoleKey.PageUp || key.Key == ConsoleKey.PageDown)
+            {
+                try
+                {
+                    if (key.Key == ConsoleKey.PageUp) onPageUp?.Invoke(); else onPageDown?.Invoke();
+                    if (onRepaint is not null) { var pos = onRepaint(); startLeft = pos.Left; startTop = pos.Top; }
+                }
+                catch { }
+                Render();
+                continue;
+            }
+            if (key.Key == ConsoleKey.Escape)
+            {
+                if (histIndex != (history?.Count ?? 0)) histIndex = history?.Count ?? 0;
+                engine.SetInitial(string.Empty);
+                draft = string.Empty;
+                modifiedFromHistory = true;
+                Render();
+                continue;
+            }
+
+            // History navigation
+            if (key.Key == ConsoleKey.UpArrow && history is not null)
+            {
+                if (histIndex > 0)
+                {
+                    if (histIndex == history.Count) draft = engine.Buffer.ToString();
+                    histIndex--;
+                    engine.SetInitial(history[histIndex]);
+                    modifiedFromHistory = false;
+                    Render();
+                }
+                continue;
+            }
+            if (key.Key == ConsoleKey.DownArrow && history is not null)
+            {
+                if (histIndex < history.Count)
+                {
+                    histIndex++;
+                    if (histIndex == history.Count) engine.SetInitial(draft); else engine.SetInitial(history[histIndex]);
+                    modifiedFromHistory = false;
+                    Render();
+                }
+                continue;
+            }
+
+            void EnsureDraft()
+            {
+                if (histIndex != (history?.Count ?? 0) && !modifiedFromHistory)
+                {
+                    modifiedFromHistory = true;
+                    draft = engine.Buffer.ToString();
+                    histIndex = history?.Count ?? 0;
+                }
+            }
+
+            // Word ops
+            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.LeftArrow) { engine.CtrlWordLeft(); Render(); continue; }
+            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.RightArrow) { engine.CtrlWordRight(); Render(); continue; }
+            if (((key.Modifiers & ConsoleModifiers.Control) != 0 || (key.Modifiers & ConsoleModifiers.Alt) != 0) && key.Key == ConsoleKey.Backspace) { EnsureDraft(); engine.CtrlWordBackspace(); if (histIndex == (history?.Count ?? 0)) draft = engine.Buffer.ToString(); Render(); continue; }
+            if (((key.Modifiers & ConsoleModifiers.Control) != 0 || (key.Modifiers & ConsoleModifiers.Alt) != 0) && key.Key == ConsoleKey.Delete) { EnsureDraft(); engine.CtrlWordDelete(); if (histIndex == (history?.Count ?? 0)) draft = engine.Buffer.ToString(); Render(); continue; }
+
+            // Basic nav
+            if (key.Key == ConsoleKey.LeftArrow) { engine.Left(); Render(); continue; }
+            if (key.Key == ConsoleKey.RightArrow) { engine.Right(); Render(); continue; }
+            if (key.Key == ConsoleKey.Home) { engine.Home(); Render(); continue; }
+            if (key.Key == ConsoleKey.End) { engine.End(); Render(); continue; }
+
+            // Char edits
+            if (key.Key == ConsoleKey.Backspace) { EnsureDraft(); engine.Backspace(); if (histIndex == (history?.Count ?? 0)) draft = engine.Buffer.ToString(); Render(); continue; }
+            if (key.Key == ConsoleKey.Delete) { EnsureDraft(); engine.Delete(); if (histIndex == (history?.Count ?? 0)) draft = engine.Buffer.ToString(); Render(); continue; }
+            if (!char.IsControl(key.KeyChar)) { EnsureDraft(); engine.Insert(key.KeyChar); if (histIndex == (history?.Count ?? 0)) draft = engine.Buffer.ToString(); Render(); continue; }
         }
     }
 
