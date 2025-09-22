@@ -8,7 +8,7 @@ using System.Text.RegularExpressions;
 
 namespace AppConfigCli;
 
-internal sealed partial class EditorApp
+internal sealed class EditorApp
 {
     // Define which characters count as "control" for highlighting
     private static readonly HashSet<char> ControlChars = [.. ",.-[]{}!:/\\()@#$%^&*+=?|<>;'\"_".ToCharArray()];
@@ -17,7 +17,7 @@ internal sealed partial class EditorApp
     internal readonly Func<Task>? WhoAmI;
 
     // Paging state
-    private int _pageIndex = 0; // zero-based
+    private int _pageIndex = 0;
 
     // Cached prefix candidates built from all repository keys plus current in-memory items
     private List<string>? _prefixCache;
@@ -31,7 +31,11 @@ internal sealed partial class EditorApp
     internal IFileSystem Filesystem { get; init; }
     internal IExternalEditor ExternalEditor { get; init; }
     internal ConsoleTheme Theme { get; init; }
-    internal List<string> CommandHistory { get; } = new List<string>();
+    internal List<string> CommandHistory { get; } = [];
+
+    // Test-only hooks for integration tests (internal visibility)
+    internal List<Item> Test_Items => Items;
+    internal Task Test_SaveAsync() => SaveAsync(pause: false);
 
     public EditorApp(
         IConfigRepository repo,
