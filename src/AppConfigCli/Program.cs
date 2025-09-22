@@ -87,138 +87,7 @@ internal class Program
         var app = new EditorApp(repo, options.Prefix, options.Label, whoAmIAction, authModeDesc, theme: theme);
         try
         {
-            // Helpers to construct nested structure with objects/arrays
-            void AddPathDict(Dictionary<string, object> node, string[] segments, string value)
-            {
-                if (segments.Length == 0)
-                {
-                    node["__value"] = value;
-                    return;
-                }
-                var head = segments[0];
-                if (!node.TryGetValue(head, out var child))
-                {
-                    if (segments.Length == 1)
-                    {
-                        node[head] = value;
-                        return;
-                    }
-                    bool nextIsIndex = int.TryParse(segments[1], out _);
-                    if (nextIsIndex)
-                    {
-                        var list = new List<object?>();
-                        node[head] = list;
-                        AddPathList(list, segments[1..], value);
-                    }
-                    else
-                    {
-                        var dict = new Dictionary<string, object>(StringComparer.Ordinal);
-                        node[head] = dict;
-                        AddPathDict(dict, segments[1..], value);
-                    }
-                }
-                else if (child is string s)
-                {
-                    bool nextIsIndex = segments.Length > 1 && int.TryParse(segments[1], out _);
-                    if (nextIsIndex)
-                    {
-                        var list = new List<object?>();
-                        node[head] = list;
-                        AddPathList(list, segments[1..], value);
-                    }
-                    else
-                    {
-                        var dict = new Dictionary<string, object>(StringComparer.Ordinal) { ["__value"] = s };
-                        node[head] = dict;
-                        AddPathDict(dict, segments[1..], value);
-                    }
-                }
-                else if (child is Dictionary<string, object> dict)
-                {
-                    if (segments.Length == 1)
-                    {
-                        dict["__value"] = value;
-                    }
-                    else
-                    {
-                        AddPathDict(dict, segments[1..], value);
-                    }
-                }
-                else if (child is List<object?> list)
-                {
-                    AddPathList(list, segments[1..], value);
-                }
-            }
-
-            void AddPathList(List<object?> list, string[] segments, string value)
-            {
-                if (segments.Length == 0) return; // nothing to set
-                var idxStr = segments[0];
-                if (!int.TryParse(idxStr, out int idx))
-                {
-                    // Treat non-numeric as object under the array element
-                    EnsureListSize(list, 1);
-                    var head = 0; // fallback index
-                    if (list[head] is not Dictionary<string, object> d)
-                    {
-                        d = new Dictionary<string, object>(StringComparer.Ordinal);
-                        list[head] = d;
-                    }
-                    AddPathDict(d, segments, value);
-                    return;
-                }
-                EnsureListSize(list, idx + 1);
-                var child = list[idx];
-                if (segments.Length == 1)
-                {
-                    list[idx] = value;
-                    return;
-                }
-                bool nextIsIndex = int.TryParse(segments[1], out _);
-                if (child is null)
-                {
-                    if (nextIsIndex)
-                    {
-                        var inner = new List<object?>();
-                        list[idx] = inner;
-                        AddPathList(inner, segments[1..], value);
-                    }
-                    else
-                    {
-                        var d = new Dictionary<string, object>(StringComparer.Ordinal);
-                        list[idx] = d;
-                        AddPathDict(d, segments[1..], value);
-                    }
-                }
-                else if (child is string s)
-                {
-                    if (nextIsIndex)
-                    {
-                        var inner = new List<object?>();
-                        list[idx] = inner;
-                        AddPathList(inner, segments[1..], value);
-                    }
-                    else
-                    {
-                        var d = new Dictionary<string, object>(StringComparer.Ordinal) { ["__value"] = s };
-                        list[idx] = d;
-                        AddPathDict(d, segments[1..], value);
-                    }
-                }
-                else if (child is Dictionary<string, object> d)
-                {
-                    AddPathDict(d, segments[1..], value);
-                }
-                else if (child is List<object?> l)
-                {
-                    AddPathList(l, segments[1..], value);
-                }
-            }
-
-            void EnsureListSize(List<object?> list, int size)
-            {
-                while (list.Count < size) list.Add(null);
-            }
+            // (obsolete nested tree helpers removed; structured editors use Core.FlatKeyMapper)
             await app.LoadAsync();
             await app.RunAsync();
             return 0;
@@ -632,15 +501,12 @@ internal sealed partial class EditorApp
             while (true)
             {
                 Render();
-                var (ctrlC, input) = ReadLineOrCtrlC(
+                var (ctrlC, input) = ReadLineOrCtrlC_Engine(
                     CommandHistory,
                     onRepaint: () =>
                     {
                         Render();
-                        int left, top;
-                        try { left = Console.CursorLeft; top = Console.CursorTop; }
-                        catch { left = 0; top = 0; }
-                        return (left, top);
+                        return (ConsoleEx.CursorLeft, ConsoleEx.CursorTop);
                     },
                     onPageUp: () => PageUp(),
                     onPageDown: () => PageDown());
@@ -683,95 +549,116 @@ internal sealed partial class EditorApp
     }
 
     // Command prompt line editor with history, cursor movement, word jumps, delete/backspace, ESC-to-clear, and instant Ctrl+C
-    internal static (bool CtrlC, string? Text) ReadLineOrCtrlC(
+    // Retired ReadLineOrCtrlC: replaced by engine-backed ReadLineOrCtrlC_Engine
+
+    // Simpler input reader for command prompts: supports ESC/Ctrl+C cancel, PageUp/PageDown, full cursor/word ops, and viewport ellipses
+    internal (bool Cancelled, string? Text) ReadLineWithPagingCancelable(
+        Func<(int Left, int Top)> onRepaint,
+        Action onPageUp,
+        Action onPageDown,
+        string? initial = null)
+    {
+        var engine = new LineEditorEngine();
+        engine.SetInitial(initial ?? string.Empty);
+        int startLeft, startTop;
+        startLeft = ConsoleEx.CursorLeft; startTop = ConsoleEx.CursorTop;
+
+        void Render()
+        {
+            int winWidth = Console.WindowWidth;
+            int contentWidth = Math.Max(1, winWidth - startLeft - 1);
+            engine.EnsureVisible(contentWidth);
+            var view = engine.GetView(contentWidth);
+            ConsoleEx.SetCursorPosition(startLeft, startTop);
+            int vlen = Math.Min(view.Length, contentWidth);
+            if (vlen > 0) Console.Write(view[..vlen]);
+            if (vlen < contentWidth) Console.Write(new string(' ', contentWidth - vlen));
+            int cursorCol = startLeft + Math.Min(engine.Cursor - engine.ScrollStart, contentWidth - 1);
+            int safeCol = Math.Min(Math.Max(0, winWidth - 1), Math.Max(0, cursorCol));
+            ConsoleEx.SetCursorPosition(safeCol, startTop);
+        }
+
+        Render();
+        while (true)
+        {
+            ConsoleKeyInfo key;
+            if (Console.KeyAvailable) key = Console.ReadKey(intercept: true); else { try { System.Threading.Thread.Sleep(25); } catch { } continue; }
+
+            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.C) { ConsoleEx.WriteLine(""); return (true, null); }
+            if (key.Key == ConsoleKey.Escape) { ConsoleEx.WriteLine(""); return (true, null); }
+
+            if (key.Key == ConsoleKey.PageUp || key.Key == ConsoleKey.PageDown)
+            {
+                try { if (key.Key == ConsoleKey.PageUp) onPageUp(); else onPageDown(); } catch { }
+                try { var pos = onRepaint(); startLeft = pos.Left; startTop = pos.Top; } catch { }
+                Render();
+                continue;
+            }
+
+            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.LeftArrow) { engine.CtrlWordLeft(); Render(); continue; }
+            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.RightArrow) { engine.CtrlWordRight(); Render(); continue; }
+            if (((key.Modifiers & ConsoleModifiers.Control) != 0 || (key.Modifiers & ConsoleModifiers.Alt) != 0) && key.Key == ConsoleKey.Backspace) { engine.CtrlWordBackspace(); Render(); continue; }
+            if (((key.Modifiers & ConsoleModifiers.Control) != 0 || (key.Modifiers & ConsoleModifiers.Alt) != 0) && key.Key == ConsoleKey.Delete) { engine.CtrlWordDelete(); Render(); continue; }
+
+            if (key.Key == ConsoleKey.LeftArrow) { engine.Left(); Render(); continue; }
+            if (key.Key == ConsoleKey.RightArrow) { engine.Right(); Render(); continue; }
+            if (key.Key == ConsoleKey.Home) { engine.Home(); Render(); continue; }
+            if (key.Key == ConsoleKey.End) { engine.End(); Render(); continue; }
+
+            if (key.Key == ConsoleKey.Enter) { ConsoleEx.WriteLine(""); return (false, engine.Buffer.ToString()); }
+            if (key.Key == ConsoleKey.Backspace) { engine.Backspace(); Render(); continue; }
+            if (key.Key == ConsoleKey.Delete) { engine.Delete(); Render(); continue; }
+            if (!char.IsControl(key.KeyChar)) { engine.Insert(key.KeyChar); Render(); continue; }
+        }
+    }
+
+    // Engine-backed line editor for the main prompt with history + viewport + paging
+    internal (bool CtrlC, string? Text) ReadLineOrCtrlC_Engine(
         List<string>? history = null,
         Func<(int Left, int Top)>? onRepaint = null,
         Action? onPageUp = null,
         Action? onPageDown = null)
     {
-        var buffer = new StringBuilder();
-        int cursor = 0; // insertion index in buffer
+        var engine = new LineEditorEngine();
+        engine.SetInitial(string.Empty);
         int startLeft, startTop;
-        try { startLeft = Console.CursorLeft; startTop = Console.CursorTop; }
-        catch { startLeft = 0; startTop = 0; }
-        int scrollStart = 0; // index in buffer where the viewport starts
-        int lastW = 0, lastH = 0;
-        try { lastW = Console.WindowWidth; lastH = Console.WindowHeight; } catch { lastW = 0; lastH = 0; }
+        startLeft = ConsoleEx.CursorLeft; startTop = ConsoleEx.CursorTop;
+        int lastW = ConsoleEx.WindowWidth, lastH = ConsoleEx.WindowHeight;
 
-        // History navigation state
-        int histIndex = history?.Count ?? 0; // one past the last (bottom slot)
-        string draft = string.Empty; // user's in-progress new command at bottom
-        bool modifiedFromHistory = false; // set when user edits a recalled history line
+        int histIndex = history?.Count ?? 0; // bottom slot
+        string draft = string.Empty;
+        bool modifiedFromHistory = false;
 
-        // If there is effectively no room on this line, move to a fresh line
         try
         {
-            int initialAvail = Math.Max(0, Console.WindowWidth - startLeft - 1);
-            if (initialAvail < 10)
-            {
-                Console.WriteLine();
-                startLeft = 0;
-                startTop = Console.CursorTop;
-            }
+            int avail = Math.Max(0, Console.WindowWidth - startLeft - 1);
+            if (avail < 10) { Console.WriteLine(); startLeft = 0; startTop = Console.CursorTop; }
         }
         catch { }
 
         void Render()
         {
-            int winWidth;
-            try { winWidth = Console.WindowWidth; }
-            catch { winWidth = 80; }
-
-            int contentWidth = Math.Max(1, winWidth - startLeft - 1);
-
-            // Keep cursor within viewport
-            if (cursor < scrollStart) scrollStart = cursor;
-            if (cursor - scrollStart >= contentWidth) scrollStart = Math.Max(0, cursor - contentWidth + 1);
-
-            int end = Math.Min(buffer.Length, scrollStart + contentWidth);
-            string view = buffer.ToString(scrollStart, end - scrollStart);
-
-            // Show ellipsis if scrolled left/right, but avoid replacing the only visible character
-            // so the user can still see part of the command when space is very tight.
-            int winVisible = Math.Max(1, Math.Min(view.Length, contentWidth));
-            if (winVisible > 1)
-            {
-                if (scrollStart > 0 && view.Length > 0)
-                {
-                    view = '…' + (view.Length > 1 ? view[1..] : string.Empty);
-                }
-                if (end < buffer.Length && view.Length > 0)
-                {
-                    view = (view.Length > 1 ? view[..^1] : string.Empty) + '…';
-                }
-            }
-
-            // Render view padded to the full content width to clear remnants
+            int w = ConsoleEx.WindowWidth;
+            int content = Math.Max(1, w - startLeft - 1);
+            engine.EnsureVisible(content);
+            var view = engine.GetView(content);
             try
             {
                 Console.SetCursorPosition(startLeft, startTop);
-                int vlen = Math.Min(view.Length, contentWidth);
+                int vlen = Math.Min(view.Length, content);
                 if (vlen > 0) Console.Write(view[..vlen]);
-                if (vlen < contentWidth)
-                {
-                    Console.Write(new string(' ', contentWidth - vlen));
-                }
-                // Place cursor within the view
-                int cursorCol = startLeft + Math.Min(cursor - scrollStart, contentWidth - 1);
-                int safeCol = Math.Min(Math.Max(0, winWidth - 1), Math.Max(0, cursorCol));
+                if (vlen < content) Console.Write(new string(' ', content - vlen));
+                int cursorCol = startLeft + Math.Min(engine.Cursor - engine.ScrollStart, content - 1);
+                int safeCol = Math.Min(Math.Max(0, w - 1), Math.Max(0, cursorCol));
                 Console.SetCursorPosition(safeCol, startTop);
             }
             catch { }
         }
 
-        // Initial render
         Render();
-
-        static bool IsWordChar(char c) => char.IsLetterOrDigit(c);
-
         while (true)
         {
-            // Auto-refresh on console resize
+            // Resize repaint
             try
             {
                 int w = Console.WindowWidth, h = Console.WindowHeight;
@@ -785,38 +672,17 @@ internal sealed partial class EditorApp
             catch { }
 
             ConsoleKeyInfo key;
-            if (Console.KeyAvailable)
-            {
-                key = Console.ReadKey(intercept: true);
-            }
-            else
-            {
-                // Small sleep to avoid busy-spin when waiting for resize
-                try { System.Threading.Thread.Sleep(50); } catch { }
-                continue;
-            }
-            // Ctrl+C pressed -> signal to caller
-            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.C)
-            {
-                Console.WriteLine();
-                return (true, null);
-            }
-            if (key.Key == ConsoleKey.Enter)
-            {
-                Console.WriteLine();
-                return (false, buffer.ToString());
-            }
-            // Paging hotkeys (PgUp/PgDn) trigger a repaint of the item list but keep editing the prompt
+            if (Console.KeyAvailable) key = Console.ReadKey(intercept: true); else { try { System.Threading.Thread.Sleep(50); } catch { } continue; }
+
+            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.C) { ConsoleEx.WriteLine(""); return (true, null); }
+            if (key.Key == ConsoleKey.Enter) { ConsoleEx.WriteLine(""); return (false, engine.Buffer.ToString()); }
+
             if (key.Key == ConsoleKey.PageUp || key.Key == ConsoleKey.PageDown)
             {
                 try
                 {
                     if (key.Key == ConsoleKey.PageUp) onPageUp?.Invoke(); else onPageDown?.Invoke();
-                    if (onRepaint is not null)
-                    {
-                        var pos = onRepaint();
-                        startLeft = pos.Left; startTop = pos.Top;
-                    }
+                    if (onRepaint is not null) { var pos = onRepaint(); startLeft = pos.Left; startTop = pos.Top; }
                 }
                 catch { }
                 Render();
@@ -824,36 +690,22 @@ internal sealed partial class EditorApp
             }
             if (key.Key == ConsoleKey.Escape)
             {
-                // Clear the entire line and keep editing (do not issue a command)
-                if (histIndex != (history?.Count ?? 0))
-                {
-                    // move to bottom draft when clearing
-                    histIndex = history?.Count ?? 0;
-                }
-                buffer.Clear();
-                cursor = 0;
-                scrollStart = 0;
+                if (histIndex != (history?.Count ?? 0)) histIndex = history?.Count ?? 0;
+                engine.SetInitial(string.Empty);
                 draft = string.Empty;
                 modifiedFromHistory = true;
                 Render();
                 continue;
             }
 
-            // History navigation (Up/Down)
+            // History navigation
             if (key.Key == ConsoleKey.UpArrow && history is not null)
             {
                 if (histIndex > 0)
                 {
-                    if (histIndex == history.Count)
-                        draft = buffer.ToString();
+                    if (histIndex == history.Count) draft = engine.Buffer.ToString();
                     histIndex--;
-                    buffer.Clear();
-                    buffer.Append(history[histIndex]);
-                    cursor = buffer.Length;
-                    // Position viewport to show as much of the tail as fits
-                    int winWidth; try { winWidth = Console.WindowWidth; } catch { winWidth = 80; }
-                    int contentWidth = Math.Max(1, winWidth - startLeft - 1);
-                    scrollStart = Math.Max(0, cursor - contentWidth + 1);
+                    engine.SetInitial(history[histIndex]);
                     modifiedFromHistory = false;
                     Render();
                 }
@@ -864,331 +716,39 @@ internal sealed partial class EditorApp
                 if (histIndex < history.Count)
                 {
                     histIndex++;
-                    buffer.Clear();
-                    if (histIndex == history.Count)
-                    {
-                        buffer.Append(draft);
-                    }
-                    else
-                    {
-                        buffer.Append(history[histIndex]);
-                    }
-                    cursor = buffer.Length;
-                    // Position viewport to show as much of the tail as fits
-                    int winWidth; try { winWidth = Console.WindowWidth; } catch { winWidth = 80; }
-                    int contentWidth = Math.Max(1, winWidth - startLeft - 1);
-                    scrollStart = Math.Max(0, cursor - contentWidth + 1);
+                    if (histIndex == history.Count) engine.SetInitial(draft); else engine.SetInitial(history[histIndex]);
                     modifiedFromHistory = false;
                     Render();
                 }
                 continue;
             }
 
-            // Editing a recalled history entry -> transition to bottom draft on first modification
             void EnsureDraft()
             {
                 if (histIndex != (history?.Count ?? 0) && !modifiedFromHistory)
                 {
                     modifiedFromHistory = true;
-                    draft = buffer.ToString();
+                    draft = engine.Buffer.ToString();
                     histIndex = history?.Count ?? 0;
                 }
             }
 
-            // Word-wise navigation/deletion with Ctrl or Alt
-            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.LeftArrow)
-            {
-                if (cursor > 0)
-                {
-                    int i = cursor - 1;
-                    while (i >= 0 && !IsWordChar(i < buffer.Length ? buffer[i] : ' ')) i--;
-                    while (i >= 0 && IsWordChar(buffer[i])) i--;
-                    cursor = Math.Max(0, i + 1);
-                    Render();
-                }
-                continue;
-            }
-            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.RightArrow)
-            {
-                if (cursor < buffer.Length)
-                {
-                    int i = cursor;
-                    while (i < buffer.Length && !IsWordChar(buffer[i])) i++;
-                    while (i < buffer.Length && IsWordChar(buffer[i])) i++;
-                    cursor = i;
-                    Render();
-                }
-                continue;
-            }
-            if (((key.Modifiers & ConsoleModifiers.Control) != 0 || (key.Modifiers & ConsoleModifiers.Alt) != 0) && key.Key == ConsoleKey.Backspace)
-            {
-                EnsureDraft();
-                if (cursor > 0)
-                {
-                    int start = cursor - 1, i = start;
-                    while (i >= 0 && !IsWordChar(buffer[i])) i--;
-                    while (i >= 0 && IsWordChar(buffer[i])) i--;
-                    int delFrom = Math.Max(0, i + 1);
-                    int delLen = cursor - delFrom;
-                    if (delLen > 0)
-                    {
-                        buffer.Remove(delFrom, delLen);
-                        cursor = delFrom;
-                        if (histIndex == (history?.Count ?? 0)) draft = buffer.ToString();
-                        Render();
-                    }
-                }
-                continue;
-            }
-            if (((key.Modifiers & ConsoleModifiers.Control) != 0 || (key.Modifiers & ConsoleModifiers.Alt) != 0) && key.Key == ConsoleKey.Delete)
-            {
-                EnsureDraft();
-                if (cursor < buffer.Length)
-                {
-                    int i = cursor;
-                    while (i < buffer.Length && !IsWordChar(buffer[i])) i++;
-                    while (i < buffer.Length && IsWordChar(buffer[i])) i++;
-                    int delLen = Math.Max(0, i - cursor);
-                    if (delLen > 0)
-                    {
-                        buffer.Remove(cursor, delLen);
-                        if (histIndex == (history?.Count ?? 0)) draft = buffer.ToString();
-                        Render();
-                    }
-                }
-                continue;
-            }
+            // Word ops
+            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.LeftArrow) { engine.CtrlWordLeft(); Render(); continue; }
+            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.RightArrow) { engine.CtrlWordRight(); Render(); continue; }
+            if (((key.Modifiers & ConsoleModifiers.Control) != 0 || (key.Modifiers & ConsoleModifiers.Alt) != 0) && key.Key == ConsoleKey.Backspace) { EnsureDraft(); engine.CtrlWordBackspace(); if (histIndex == (history?.Count ?? 0)) draft = engine.Buffer.ToString(); Render(); continue; }
+            if (((key.Modifiers & ConsoleModifiers.Control) != 0 || (key.Modifiers & ConsoleModifiers.Alt) != 0) && key.Key == ConsoleKey.Delete) { EnsureDraft(); engine.CtrlWordDelete(); if (histIndex == (history?.Count ?? 0)) draft = engine.Buffer.ToString(); Render(); continue; }
 
-            // Basic navigation
-            if (key.Key == ConsoleKey.LeftArrow)
-            {
-                if (cursor > 0) { cursor--; Render(); }
-                continue;
-            }
-            if (key.Key == ConsoleKey.RightArrow)
-            {
-                if (cursor < buffer.Length) { cursor++; Render(); }
-                continue;
-            }
-            if (key.Key == ConsoleKey.Home)
-            {
-                cursor = 0; Render();
-                continue;
-            }
-            if (key.Key == ConsoleKey.End)
-            {
-                cursor = buffer.Length; Render();
-                continue;
-            }
+            // Basic nav
+            if (key.Key == ConsoleKey.LeftArrow) { engine.Left(); Render(); continue; }
+            if (key.Key == ConsoleKey.RightArrow) { engine.Right(); Render(); continue; }
+            if (key.Key == ConsoleKey.Home) { engine.Home(); Render(); continue; }
+            if (key.Key == ConsoleKey.End) { engine.End(); Render(); continue; }
 
-            // Deletions
-            if (key.Key == ConsoleKey.Backspace)
-            {
-                EnsureDraft();
-                if (cursor > 0)
-                {
-                    buffer.Remove(cursor - 1, 1);
-                    cursor--;
-                    if (histIndex == (history?.Count ?? 0)) draft = buffer.ToString();
-                    Render();
-                }
-                continue;
-            }
-            if (key.Key == ConsoleKey.Delete)
-            {
-                EnsureDraft();
-                if (cursor < buffer.Length)
-                {
-                    buffer.Remove(cursor, 1);
-                    if (histIndex == (history?.Count ?? 0)) draft = buffer.ToString();
-                    Render();
-                }
-                continue;
-            }
-
-            // Insert characters
-            if (!char.IsControl(key.KeyChar))
-            {
-                EnsureDraft();
-                buffer.Insert(cursor, key.KeyChar);
-                cursor++;
-                if (histIndex == (history?.Count ?? 0)) draft = buffer.ToString();
-                Render();
-                continue;
-            }
-        }
-    }
-
-    // Simpler input reader for command prompts: supports ESC/Ctrl+C cancel and PageUp/PageDown via callbacks
-    internal static (bool Cancelled, string? Text) ReadLineWithPagingCancelable(
-        Func<(int Left, int Top)> onRepaint,
-        Action onPageUp,
-        Action onPageDown)
-    {
-        var buffer = new StringBuilder();
-        int cursor = 0; // insertion index
-        int startLeft, startTop;
-        try { startLeft = Console.CursorLeft; startTop = Console.CursorTop; }
-        catch { startLeft = 0; startTop = 0; }
-
-        void Render()
-        {
-            try { Console.SetCursorPosition(startLeft, startTop); } catch { }
-            var text = buffer.ToString();
-            Console.Write(text);
-            // Clear any trailing remnants by writing a space and moving back
-            Console.Write(' ');
-            try { Console.SetCursorPosition(startLeft + cursor, startTop); } catch { }
-        }
-
-        Render();
-        while (true)
-        {
-            ConsoleKeyInfo key;
-            if (Console.KeyAvailable)
-                key = Console.ReadKey(intercept: true);
-            else { try { System.Threading.Thread.Sleep(25); } catch { } continue; }
-
-            // Cancel keys
-            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.C)
-            {
-                Console.WriteLine();
-                return (true, null);
-            }
-            if (key.Key == ConsoleKey.Escape)
-            {
-                Console.WriteLine();
-                return (true, null);
-            }
-
-            // Paging
-            if (key.Key == ConsoleKey.PageUp || key.Key == ConsoleKey.PageDown)
-            {
-                try { if (key.Key == ConsoleKey.PageUp) onPageUp(); else onPageDown(); } catch { }
-                try
-                {
-                    var pos = onRepaint();
-                    startLeft = pos.Left; startTop = pos.Top;
-                }
-                catch { }
-                Render();
-                continue;
-            }
-
-            // Navigation keys
-            if (key.Key == ConsoleKey.LeftArrow)
-            {
-                if (cursor > 0) { cursor--; Render(); }
-                continue;
-            }
-            if (key.Key == ConsoleKey.RightArrow)
-            {
-                if (cursor < buffer.Length) { cursor++; Render(); }
-                continue;
-            }
-            if (key.Key == ConsoleKey.Home)
-            {
-                cursor = 0; Render();
-                continue;
-            }
-            if (key.Key == ConsoleKey.End)
-            {
-                cursor = buffer.Length; Render();
-                continue;
-            }
-
-            // Word-wise navigation/deletion (Ctrl + arrows/backspace/delete)
-            static bool IsWordChar(char c) => char.IsLetterOrDigit(c);
-            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.LeftArrow)
-            {
-                if (cursor > 0)
-                {
-                    int i = cursor - 1;
-                    while (i >= 0 && !IsWordChar(i < buffer.Length ? buffer[i] : ' ')) i--;
-                    while (i >= 0 && IsWordChar(buffer[i])) i--;
-                    cursor = Math.Max(0, i + 1);
-                    Render();
-                }
-                continue;
-            }
-            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.RightArrow)
-            {
-                if (cursor < buffer.Length)
-                {
-                    int i = cursor;
-                    while (i < buffer.Length && !IsWordChar(buffer[i])) i++;
-                    while (i < buffer.Length && IsWordChar(buffer[i])) i++;
-                    cursor = i;
-                    Render();
-                }
-                continue;
-            }
-            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.Backspace)
-            {
-                if (cursor > 0)
-                {
-                    int start = cursor - 1, i = start;
-                    while (i >= 0 && !IsWordChar(buffer[i])) i--;
-                    while (i >= 0 && IsWordChar(buffer[i])) i--;
-                    int delFrom = Math.Max(0, i + 1);
-                    int delLen = cursor - delFrom;
-                    if (delLen > 0)
-                    {
-                        buffer.Remove(delFrom, delLen);
-                        cursor = delFrom;
-                        Render();
-                    }
-                }
-                continue;
-            }
-            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.Delete)
-            {
-                if (cursor < buffer.Length)
-                {
-                    int i = cursor;
-                    while (i < buffer.Length && !IsWordChar(buffer[i])) i++;
-                    while (i < buffer.Length && IsWordChar(buffer[i])) i++;
-                    int delLen = Math.Max(0, i - cursor);
-                    if (delLen > 0)
-                    {
-                        buffer.Remove(cursor, delLen);
-                        Render();
-                    }
-                }
-                continue;
-            }
-
-            if (key.Key == ConsoleKey.Enter)
-            {
-                Console.WriteLine();
-                return (false, buffer.ToString());
-            }
-            if (key.Key == ConsoleKey.Backspace)
-            {
-                if (cursor > 0)
-                {
-                    buffer.Remove(cursor - 1, 1);
-                    cursor--;
-                    Render();
-                }
-                continue;
-            }
-            if (key.Key == ConsoleKey.Delete)
-            {
-                if (cursor < buffer.Length)
-                {
-                    buffer.Remove(cursor, 1);
-                    Render();
-                }
-                continue;
-            }
-            if (!char.IsControl(key.KeyChar))
-            {
-                buffer.Insert(cursor, key.KeyChar);
-                cursor++;
-                Render();
-                continue;
-            }
+            // Char edits
+            if (key.Key == ConsoleKey.Backspace) { EnsureDraft(); engine.Backspace(); if (histIndex == (history?.Count ?? 0)) draft = engine.Buffer.ToString(); Render(); continue; }
+            if (key.Key == ConsoleKey.Delete) { EnsureDraft(); engine.Delete(); if (histIndex == (history?.Count ?? 0)) draft = engine.Buffer.ToString(); Render(); continue; }
+            if (!char.IsControl(key.KeyChar)) { EnsureDraft(); engine.Insert(key.KeyChar); if (histIndex == (history?.Count ?? 0)) draft = engine.Buffer.ToString(); Render(); continue; }
         }
     }
 
@@ -1306,137 +866,7 @@ internal sealed partial class EditorApp
         return result;
     }
 
-    // Helpers for building nested object/list structure from split keys
-    private void AddPathToTree(Dictionary<string, object> node, string[] segments, string value)
-    {
-        if (segments.Length == 0)
-        {
-            node["__value"] = value;
-            return;
-        }
-        var head = segments[0];
-        if (!node.TryGetValue(head, out var child))
-        {
-            if (segments.Length == 1)
-            {
-                node[head] = value;
-                return;
-            }
-            bool nextIsIndex = int.TryParse(segments[1], out _);
-            if (nextIsIndex)
-            {
-                var list = new List<object?>();
-                node[head] = list;
-                AddPathToList(list, segments[1..], value);
-            }
-            else
-            {
-                var dict = new Dictionary<string, object>(StringComparer.Ordinal);
-                node[head] = dict;
-                AddPathToTree(dict, segments[1..], value);
-            }
-        }
-        else if (child is string s)
-        {
-            bool nextIsIndex = segments.Length > 1 && int.TryParse(segments[1], out _);
-            if (nextIsIndex)
-            {
-                var list = new List<object?>();
-                node[head] = list;
-                AddPathToList(list, segments[1..], value);
-            }
-            else
-            {
-                var dict = new Dictionary<string, object>(StringComparer.Ordinal) { ["__value"] = s };
-                node[head] = dict;
-                AddPathToTree(dict, segments[1..], value);
-            }
-        }
-        else if (child is Dictionary<string, object> dict)
-        {
-            if (segments.Length == 1)
-            {
-                dict["__value"] = value;
-            }
-            else
-            {
-                AddPathToTree(dict, segments[1..], value);
-            }
-        }
-        else if (child is List<object?> list)
-        {
-            AddPathToList(list, segments[1..], value);
-        }
-    }
-
-    private void AddPathToList(List<object?> list, string[] segments, string value)
-    {
-        if (segments.Length == 0) return;
-        var idxStr = segments[0];
-        if (!int.TryParse(idxStr, out int idx))
-        {
-            EnsureListSize(list, 1);
-            var head = 0;
-            if (list[head] is not Dictionary<string, object> d)
-            {
-                d = new Dictionary<string, object>(StringComparer.Ordinal);
-                list[head] = d;
-            }
-            AddPathToTree(d, segments, value);
-            return;
-        }
-        EnsureListSize(list, idx + 1);
-        var child = list[idx];
-        if (segments.Length == 1)
-        {
-            list[idx] = value;
-            return;
-        }
-        bool nextIsIndex = int.TryParse(segments[1], out _);
-        if (child is null)
-        {
-            if (nextIsIndex)
-            {
-                var inner = new List<object?>();
-                list[idx] = inner;
-                AddPathToList(inner, segments[1..], value);
-            }
-            else
-            {
-                var d = new Dictionary<string, object>(StringComparer.Ordinal);
-                list[idx] = d;
-                AddPathToTree(d, segments[1..], value);
-            }
-        }
-        else if (child is string s)
-        {
-            if (nextIsIndex)
-            {
-                var inner = new List<object?>();
-                list[idx] = inner;
-                AddPathToList(inner, segments[1..], value);
-            }
-            else
-            {
-                var d = new Dictionary<string, object>(StringComparer.Ordinal) { ["__value"] = s };
-                list[idx] = d;
-                AddPathToTree(d, segments[1..], value);
-            }
-        }
-        else if (child is Dictionary<string, object> d2)
-        {
-            AddPathToTree(d2, segments[1..], value);
-        }
-        else if (child is List<object?> l)
-        {
-            AddPathToList(l, segments[1..], value);
-        }
-    }
-
-    private static void EnsureListSize(List<object?> list, int size)
-    {
-        while (list.Count < size) list.Add(null);
-    }
+    // (obsolete nested tree helpers removed; structured editors use Core.FlatKeyMapper)
 
     internal List<int>? MapVisibleRangeToItemIndices(int start, int end, out string error)
     {

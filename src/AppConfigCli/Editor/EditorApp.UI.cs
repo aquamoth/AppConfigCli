@@ -11,17 +11,19 @@ internal sealed partial class EditorApp
     private static readonly System.Collections.Generic.HashSet<char> ControlChars =
         new System.Collections.Generic.HashSet<char>(",.-[]{}!:/\\()@#$%^&*+=?|<>;'\"_".ToCharArray());
 
+    internal IConsoleEx ConsoleEx { get; init; } = new DefaultConsoleEx();
+
     private void Render()
     {
-        Console.Clear();
+        ConsoleEx.Clear();
         var width = GetWindowWidth();
         var height = GetWindowHeight();
         bool includeValue = width >= 60; // minimal width for value column
         var visible = GetVisibleItems();
 
-        // Build header lines for filters and compute paging height accordingly
-        var headerLines = BuildFilterHeaderLines(width);
-        ComputePaging(height, visible.Count, headerLines.Count, out var pageSize, out var pageCount);
+        // Compute header line count via shared layout service (no rendering here)
+        int headerLineCount = GetHeaderLineCountForWidth(width);
+        ComputePaging(height, visible.Count, headerLineCount, out var pageSize, out var pageCount);
         if (_pageIndex >= pageCount) _pageIndex = Math.Max(0, pageCount - 1);
         if (_pageIndex < 0) _pageIndex = 0;
         var pageText = pageCount > 1 ? $"PAGE {_pageIndex + 1}/{pageCount}" : string.Empty;
@@ -30,15 +32,15 @@ internal sealed partial class EditorApp
         if (!string.IsNullOrEmpty(pageText))
         {
             int pad = Math.Max(1, width - title.Length - pageText.Length);
-            Console.WriteLine(title + new string(' ', pad) + pageText);
+            ConsoleEx.WriteLine(title + new string(' ', pad) + pageText);
         }
         else
         {
-            Console.WriteLine(title);
+            ConsoleEx.WriteLine(title);
         }
 
-        // Render header rows under the title with colored values
-        RenderFilterHeader(width);
+        // Render header rows using shared layout + console wrapper
+        RenderHeaderViaLayout(width);
 
         // Determine the current page slice before computing dynamic widths
         int pageStart = 0;
@@ -113,7 +115,7 @@ internal sealed partial class EditorApp
 
         // (Old static layout logic removed; using dynamic per-page widths computed above)
 
-        Console.WriteLine(new string('-', width));
+        ConsoleEx.WriteLine(new string('-', width));
         var idxHeader = "Idx".PadLeft(indexDigits);
         var header = new System.Text.StringBuilder();
         header.Append(idxHeader);
@@ -130,8 +132,8 @@ internal sealed partial class EditorApp
             header.Append("  ");
             header.Append("Value");
         }
-        Console.WriteLine(header.ToString());
-        Console.WriteLine(new string('-', width));
+        ConsoleEx.WriteLine(header.ToString());
+        ConsoleEx.WriteLine(new string('-', width));
 
         for (int i = 0; i < pageCountItems; i++)
         {
@@ -150,47 +152,47 @@ internal sealed partial class EditorApp
             var valDisp = valueWidth > 0 ? TextTruncation.TruncateFixed(valFull, valueWidth) : string.Empty;
 
             // Left prefix: index (dynamic width), status (1 char), then a space
-            Console.ForegroundColor = Theme.Default;
+            ConsoleEx.ForegroundColor = Theme.Default;
             var idxText = (pageStart + i + 1).ToString().PadLeft(indexDigits);
             bool isDirty = s != ' ';
             if (Theme.Enabled && isDirty)
             {
-                var prev = Console.ForegroundColor;
+                var prev = ConsoleEx.ForegroundColor;
                 var col = ClassifyColor(s); // use same color as status indicator
-                if (Console.ForegroundColor != col) Console.ForegroundColor = col;
-                Console.Write(idxText);
-                if (Console.ForegroundColor != prev) Console.ForegroundColor = prev;
+                if (ConsoleEx.ForegroundColor != col) ConsoleEx.ForegroundColor = col;
+                ConsoleEx.Write(idxText);
+                if (ConsoleEx.ForegroundColor != prev) ConsoleEx.ForegroundColor = prev;
             }
             else
             {
-                Console.Write(idxText);
+                ConsoleEx.Write(idxText);
             }
             if (Theme.Enabled)
             {
-                var prev = Console.ForegroundColor;
+                var prev = ConsoleEx.ForegroundColor;
                 var col = ClassifyColor(s);
-                if (Console.ForegroundColor != col) Console.ForegroundColor = col;
-                Console.Write(s);
-                if (Console.ForegroundColor != Theme.Default) Console.ForegroundColor = Theme.Default;
+                if (ConsoleEx.ForegroundColor != col) ConsoleEx.ForegroundColor = col;
+                ConsoleEx.Write(s);
+                if (ConsoleEx.ForegroundColor != Theme.Default) ConsoleEx.ForegroundColor = Theme.Default;
             }
             else
             {
-                Console.Write(s);
+                ConsoleEx.Write(s);
             }
-            Console.Write(' ');
+            ConsoleEx.Write(' ');
             // Key (colored)
-            if (Theme.Enabled) WriteColoredFixed(keyDisp, keyWidth); else Console.Write(PadColumn(keyDisp, keyWidth));
-            Console.ForegroundColor = Theme.Default;
+            if (Theme.Enabled) WriteColoredFixed(keyDisp, keyWidth); else ConsoleEx.Write(PadColumn(keyDisp, keyWidth));
+            ConsoleEx.ForegroundColor = Theme.Default;
             if (showLabelColumn)
             {
-                Console.Write("  ");
+                ConsoleEx.Write("  ");
                 // Label (unstyled)
-                Console.Write(PadColumn(labelDisp, labelWidth));
+                ConsoleEx.Write(PadColumn(labelDisp, labelWidth));
             }
 
             if (valueWidth > 0)
             {
-                Console.Write("  ");
+                ConsoleEx.Write("  ");
                 if (Theme.Enabled)
                 {
                     if (ValueHighlightRegex is not null)
@@ -200,15 +202,15 @@ internal sealed partial class EditorApp
                 }
                 else
                 {
-                    Console.Write(PadColumn(valDisp, valueWidth));
+                    ConsoleEx.Write(PadColumn(valDisp, valueWidth));
                 }
             }
-            Console.ForegroundColor = Theme.Default;
-            Console.WriteLine();
+            ConsoleEx.ForegroundColor = Theme.Default;
+            ConsoleEx.WriteLine("");
         }
 
         // Single-line prompt hint to avoid wrapping on narrow consoles
-        Console.Write("Command (h for help)> ");
+        ConsoleEx.Write("Command (h for help)> ");
     }
 
     // Expose a safe repaint for commands needing to trigger immediate UI refresh
@@ -396,19 +398,24 @@ internal sealed partial class EditorApp
 
     // Expose header line count for paging during prompt PageUp/PageDown
     internal int GetHeaderLineCountForWidth(int width)
-        => BuildFilterHeaderLines(width).Count;
+    {
+        string? p = string.IsNullOrWhiteSpace(Prefix) ? null : $"Prefix: {Prefix}";
+        string? l = Label is null ? null : $"Label: {(Label.Length == 0 ? "(none)" : Label)}";
+        string? f = string.IsNullOrEmpty(KeyRegexPattern) ? null : $"Filter: {KeyRegexPattern}";
+        return HeaderLayout.Compute(width, p, l, f).Count;
+    }
 
     private void WriteColored(string text)
     {
-        var prev = Console.ForegroundColor;
+        var prev = ConsoleEx.ForegroundColor;
         for (int i = 0; i < text.Length; i++)
         {
             var ch = text[i];
             var color = ClassifyColor(ch);
-            if (Console.ForegroundColor != color) Console.ForegroundColor = color;
-            Console.Write(ch);
+            if (ConsoleEx.ForegroundColor != color) ConsoleEx.ForegroundColor = color;
+            ConsoleEx.Write(ch);
         }
-        if (Console.ForegroundColor != prev) Console.ForegroundColor = prev;
+        if (ConsoleEx.ForegroundColor != prev) ConsoleEx.ForegroundColor = prev;
     }
 
     private void RenderFilterHeader(int width)
@@ -433,7 +440,7 @@ internal sealed partial class EditorApp
             try
             {
                 Console.SetCursorPosition(0, top);
-                Console.Write(new string(' ', Math.Max(0, width)));
+                ConsoleEx.Write(new string(' ', Math.Max(0, width)));
             }
             catch { }
             foreach (var seg in segments)
@@ -446,13 +453,13 @@ internal sealed partial class EditorApp
                 int idx = text.IndexOf(": ", StringComparison.Ordinal);
                 if (idx >= 0 && Theme.Enabled)
                 {
-                    Console.Write(text.Substring(0, idx + 2));
+                    ConsoleEx.Write(text.Substring(0, idx + 2));
                     var val = text.Substring(idx + 2);
                     WriteColored(val);
                 }
                 else
                 {
-                    Console.Write(text);
+                    ConsoleEx.Write(text);
                 }
             }
         }
@@ -583,26 +590,26 @@ internal sealed partial class EditorApp
     {
         // Write text up to width with per-character coloring, then pad to width
         int len = Math.Min(text.Length, width);
-        var prev = Console.ForegroundColor;
+        var prev = ConsoleEx.ForegroundColor;
         for (int i = 0; i < len; i++)
         {
             var ch = text[i];
             var color = ClassifyColor(ch);
-            if (Console.ForegroundColor != color) Console.ForegroundColor = color;
-            Console.Write(ch);
+            if (ConsoleEx.ForegroundColor != color) ConsoleEx.ForegroundColor = color;
+            ConsoleEx.Write(ch);
         }
         if (len < width)
         {
-            if (Console.ForegroundColor != Theme.Default) Console.ForegroundColor = Theme.Default;
-            Console.Write(new string(' ', width - len));
+            if (ConsoleEx.ForegroundColor != Theme.Default) ConsoleEx.ForegroundColor = Theme.Default;
+            ConsoleEx.Write(new string(' ', width - len));
         }
-        if (Console.ForegroundColor != prev) Console.ForegroundColor = prev;
+        if (ConsoleEx.ForegroundColor != prev) ConsoleEx.ForegroundColor = prev;
     }
 
     private void WriteColoredFixedWithHighlight(string text, int width, System.Text.RegularExpressions.Regex highlight)
     {
         int len = Math.Min(text.Length, width);
-        var prevFg = Console.ForegroundColor;
+        var prevFg = ConsoleEx.ForegroundColor;
         var prevBg = Console.BackgroundColor;
 
         // Precompute highlight flags for displayed substring
@@ -627,21 +634,21 @@ internal sealed partial class EditorApp
             if (hl)
             {
                 if (Console.BackgroundColor != ConsoleColor.DarkYellow) Console.BackgroundColor = ConsoleColor.DarkYellow;
-                if (Console.ForegroundColor != ConsoleColor.Black) Console.ForegroundColor = ConsoleColor.Black;
+                if (ConsoleEx.ForegroundColor != ConsoleColor.Black) ConsoleEx.ForegroundColor = ConsoleColor.Black;
             }
             else
             {
                 if (Console.BackgroundColor != prevBg) Console.BackgroundColor = prevBg;
-                if (Console.ForegroundColor != fg) Console.ForegroundColor = fg;
+                if (ConsoleEx.ForegroundColor != fg) ConsoleEx.ForegroundColor = fg;
             }
-            Console.Write(ch);
+            ConsoleEx.Write(ch);
         }
         // Reset colors and pad if needed
         if (Console.BackgroundColor != prevBg) Console.BackgroundColor = prevBg;
-        if (Console.ForegroundColor != prevFg) Console.ForegroundColor = prevFg;
+        if (ConsoleEx.ForegroundColor != prevFg) ConsoleEx.ForegroundColor = prevFg;
         if (len < width)
         {
-            Console.Write(new string(' ', width - len));
+            ConsoleEx.Write(new string(' ', width - len));
         }
     }
 
@@ -660,5 +667,44 @@ internal sealed partial class EditorApp
         if (ControlChars.Contains(ch) || char.IsPunctuation(ch)) return theme.Control;
         if (char.IsLetter(ch)) return theme.Letters;
         return theme.Default; // includes whitespace
+    }
+
+    private void RenderHeaderViaLayout(int width)
+    {
+        string? p = string.IsNullOrWhiteSpace(Prefix) ? null : $"Prefix: {Prefix}";
+        string? l = Label is null ? null : $"Label: {(Label.Length == 0 ? "(none)" : Label)}";
+        string? f = string.IsNullOrEmpty(KeyRegexPattern) ? null : $"Filter: {KeyRegexPattern}";
+        if (p is null && l is null && f is null) return;
+        int startTop; try { startTop = Console.CursorTop; } catch { startTop = 1; }
+        var layout = HeaderLayout.Compute(width, p, l, f);
+        void RenderLine(int top, System.Collections.Generic.List<HeaderLayout.Segment> segs)
+        {
+            ConsoleEx.SetCursorPosition(0, top);
+            ConsoleEx.Write(new string(' ', Math.Max(0, width)));
+            foreach (var seg in segs)
+            {
+                if (seg.Pos < 0 || seg.Pos >= width) continue;
+                ConsoleEx.SetCursorPosition(seg.Pos, top);
+                var text = seg.Text;
+                int idx = text.IndexOf(": ", System.StringComparison.Ordinal);
+                if (idx >= 0 && Theme.Enabled)
+                {
+                    ConsoleEx.Write(text.Substring(0, idx + 2));
+                    var val = text.Substring(idx + 2);
+                    WriteColored(val);
+                }
+                else
+                {
+                    ConsoleEx.Write(text);
+                }
+            }
+        }
+        int line = 0;
+        foreach (var segs in layout)
+        {
+            RenderLine(startTop + line, segs);
+            line++;
+        }
+        ConsoleEx.SetCursorPosition(0, startTop + line);
     }
 }
