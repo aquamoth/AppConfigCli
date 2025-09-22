@@ -18,16 +18,15 @@ internal partial record Command
         public override Task<CommandResult> ExecuteAsync(EditorApp app)
         {
             // 1) Prompt for search regex (ESC/Ctrl+C cancels)
-            Console.WriteLine("Enter search regex (applies to VALUES only):");
-            Console.Write("> ");
-            var patResult = EditorApp.ReadLineWithPagingCancelable(
+            app.ConsoleEx.WriteLine("Enter search regex (applies to VALUES only):");
+            app.ConsoleEx.Write("> ");
+            var patResult = app.ReadLineWithPagingCancelable(
                 onRepaint: () =>
                 {
                     app.Repaint();
-                    Console.WriteLine("Enter search regex (applies to VALUES only):");
-                    Console.Write("> ");
-                    int left, top; try { left = Console.CursorLeft; top = Console.CursorTop; } catch { left = 0; top = 0; }
-                    return (left, top);
+                    app.ConsoleEx.WriteLine("Enter search regex (applies to VALUES only):");
+                    app.ConsoleEx.Write("> ");
+                    return (app.ConsoleEx.CursorLeft, app.ConsoleEx.CursorTop);
                 },
                 onPageUp: () => app.PageUpCommand(),
                 onPageDown: () => app.PageDownCommand(),
@@ -57,16 +56,15 @@ internal partial record Command
             app.Repaint();
 
             // 2) Prompt for replacement text, allow paging during input
-            Console.WriteLine("Enter replacement text (supports $1, $2 for capture groups):");
-            Console.Write("> ");
-            var replResult = EditorApp.ReadLineWithPagingCancelable(
+            app.ConsoleEx.WriteLine("Enter replacement text (supports $1, $2 for capture groups):");
+            app.ConsoleEx.Write("> ");
+            var replResult = app.ReadLineWithPagingCancelable(
                 onRepaint: () =>
                 {
                     app.Repaint();
-                    Console.WriteLine("Enter replacement text (supports $1, $2 for capture groups):");
-                    Console.Write("> ");
-                    int left, top; try { left = Console.CursorLeft; top = Console.CursorTop; } catch { left = 0; top = 0; }
-                    return (left, top);
+                    app.ConsoleEx.WriteLine("Enter replacement text (supports $1, $2 for capture groups):");
+                    app.ConsoleEx.Write("> ");
+                    return (app.ConsoleEx.CursorLeft, app.ConsoleEx.CursorTop);
                 },
                 onPageUp: () => app.PageUpCommand(),
                 onPageDown: () => app.PageDownCommand(),

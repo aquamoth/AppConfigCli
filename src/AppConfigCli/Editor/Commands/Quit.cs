@@ -29,7 +29,7 @@ internal partial record Command
                 while (true)
                 {
                     Console.Write("> ");
-                    var (ctrlC, input) = EditorApp.ReadLineOrCtrlC_Engine();
+                    var (ctrlC, input) = app.ReadLineOrCtrlC_Engine();
                     if (ctrlC) return false; // treat Ctrl+C here as cancel
                     var choice = (input ?? string.Empty).Trim().ToLowerInvariant();
                     if (choice.Length == 0) continue;

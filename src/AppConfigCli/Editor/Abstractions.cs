@@ -65,6 +65,8 @@ internal interface IConsoleEx
 {
     int WindowWidth { get; }
     int WindowHeight { get; }
+    int CursorLeft { get; }
+    int CursorTop { get; }
     ConsoleColor ForegroundColor { get; set; }
     void SetCursorPosition(int left, int top);
     void Clear();
@@ -77,6 +79,8 @@ internal sealed class DefaultConsoleEx : IConsoleEx
 {
     public int WindowWidth { get { try { return Console.WindowWidth; } catch { return 80; } } }
     public int WindowHeight { get { try { return Console.WindowHeight; } catch { return 40; } } }
+    public int CursorLeft { get { try { return Console.CursorLeft; } catch { return 0; } } }
+    public int CursorTop  { get { try { return Console.CursorTop; }  catch { return 0; } } }
     public ConsoleColor ForegroundColor
     {
         get { try { return Console.ForegroundColor; } catch { return ConsoleColor.Gray; } }

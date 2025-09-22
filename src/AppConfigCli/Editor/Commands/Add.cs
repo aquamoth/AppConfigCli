@@ -55,8 +55,8 @@ internal partial record Command
 
             Console.WriteLine("Enter value:");
             Console.Write("> ");
-            var vRes = EditorApp.ReadLineWithPagingCancelable(
-                onRepaint: () => { int l, t; try { l = Console.CursorLeft; t = Console.CursorTop; } catch { l = 0; t = 0; } return (l, t); },
+            var vRes = app.ReadLineWithPagingCancelable(
+                onRepaint: () => { return (app.ConsoleEx.CursorLeft, app.ConsoleEx.CursorTop); },
                 onPageUp: () => { },
                 onPageDown: () => { },
                 initial: string.Empty);
