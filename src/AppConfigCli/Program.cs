@@ -888,177 +888,64 @@ internal sealed partial class EditorApp
         }
     }
 
-    // Simpler input reader for command prompts: supports ESC/Ctrl+C cancel and PageUp/PageDown via callbacks
+    // Simpler input reader for command prompts: supports ESC/Ctrl+C cancel, PageUp/PageDown, full cursor/word ops, and viewport ellipses
     internal static (bool Cancelled, string? Text) ReadLineWithPagingCancelable(
         Func<(int Left, int Top)> onRepaint,
         Action onPageUp,
         Action onPageDown,
         string? initial = null)
     {
-        var buffer = new StringBuilder(initial ?? string.Empty);
-        int cursor = buffer.Length; // insertion index
+        var engine = new LineEditorEngine();
+        engine.SetInitial(initial ?? string.Empty);
         int startLeft, startTop;
-        try { startLeft = Console.CursorLeft; startTop = Console.CursorTop; }
-        catch { startLeft = 0; startTop = 0; }
+        try { startLeft = Console.CursorLeft; startTop = Console.CursorTop; } catch { startLeft = 0; startTop = 0; }
 
         void Render()
         {
+            int winWidth; try { winWidth = Console.WindowWidth; } catch { winWidth = 80; }
+            int contentWidth = Math.Max(1, winWidth - startLeft - 1);
+            engine.EnsureVisible(contentWidth);
+            var view = engine.GetView(contentWidth);
             try { Console.SetCursorPosition(startLeft, startTop); } catch { }
-            var text = buffer.ToString();
-            Console.Write(text);
-            // Clear any trailing remnants by writing a space and moving back
-            Console.Write(' ');
-            try { Console.SetCursorPosition(startLeft + cursor, startTop); } catch { }
+            int vlen = Math.Min(view.Length, contentWidth);
+            if (vlen > 0) Console.Write(view[..vlen]);
+            if (vlen < contentWidth) Console.Write(new string(' ', contentWidth - vlen));
+            int cursorCol = startLeft + Math.Min(engine.Cursor - engine.ScrollStart, contentWidth - 1);
+            int safeCol = Math.Min(Math.Max(0, winWidth - 1), Math.Max(0, cursorCol));
+            try { Console.SetCursorPosition(safeCol, startTop); } catch { }
         }
 
         Render();
         while (true)
         {
             ConsoleKeyInfo key;
-            if (Console.KeyAvailable)
-                key = Console.ReadKey(intercept: true);
-            else { try { System.Threading.Thread.Sleep(25); } catch { } continue; }
+            if (Console.KeyAvailable) key = Console.ReadKey(intercept: true); else { try { System.Threading.Thread.Sleep(25); } catch { } continue; }
 
-            // Cancel keys
-            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.C)
-            {
-                Console.WriteLine();
-                return (true, null);
-            }
-            if (key.Key == ConsoleKey.Escape)
-            {
-                Console.WriteLine();
-                return (true, null);
-            }
+            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.C) { Console.WriteLine(); return (true, null); }
+            if (key.Key == ConsoleKey.Escape) { Console.WriteLine(); return (true, null); }
 
-            // Paging
             if (key.Key == ConsoleKey.PageUp || key.Key == ConsoleKey.PageDown)
             {
                 try { if (key.Key == ConsoleKey.PageUp) onPageUp(); else onPageDown(); } catch { }
-                try
-                {
-                    var pos = onRepaint();
-                    startLeft = pos.Left; startTop = pos.Top;
-                }
-                catch { }
+                try { var pos = onRepaint(); startLeft = pos.Left; startTop = pos.Top; } catch { }
                 Render();
                 continue;
             }
 
-            // Navigation keys
-            if (key.Key == ConsoleKey.LeftArrow)
-            {
-                if (cursor > 0) { cursor--; Render(); }
-                continue;
-            }
-            if (key.Key == ConsoleKey.RightArrow)
-            {
-                if (cursor < buffer.Length) { cursor++; Render(); }
-                continue;
-            }
-            if (key.Key == ConsoleKey.Home)
-            {
-                cursor = 0; Render();
-                continue;
-            }
-            if (key.Key == ConsoleKey.End)
-            {
-                cursor = buffer.Length; Render();
-                continue;
-            }
+            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.LeftArrow) { engine.CtrlWordLeft(); Render(); continue; }
+            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.RightArrow) { engine.CtrlWordRight(); Render(); continue; }
+            if (((key.Modifiers & ConsoleModifiers.Control) != 0 || (key.Modifiers & ConsoleModifiers.Alt) != 0) && key.Key == ConsoleKey.Backspace) { engine.CtrlWordBackspace(); Render(); continue; }
+            if (((key.Modifiers & ConsoleModifiers.Control) != 0 || (key.Modifiers & ConsoleModifiers.Alt) != 0) && key.Key == ConsoleKey.Delete) { engine.CtrlWordDelete(); Render(); continue; }
 
-            // Word-wise navigation/deletion (Ctrl + arrows/backspace/delete)
-            static bool IsWordChar(char c) => char.IsLetterOrDigit(c);
-            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.LeftArrow)
-            {
-                if (cursor > 0)
-                {
-                    int i = cursor - 1;
-                    while (i >= 0 && !IsWordChar(i < buffer.Length ? buffer[i] : ' ')) i--;
-                    while (i >= 0 && IsWordChar(buffer[i])) i--;
-                    cursor = Math.Max(0, i + 1);
-                    Render();
-                }
-                continue;
-            }
-            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.RightArrow)
-            {
-                if (cursor < buffer.Length)
-                {
-                    int i = cursor;
-                    while (i < buffer.Length && !IsWordChar(buffer[i])) i++;
-                    while (i < buffer.Length && IsWordChar(buffer[i])) i++;
-                    cursor = i;
-                    Render();
-                }
-                continue;
-            }
-            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.Backspace)
-            {
-                if (cursor > 0)
-                {
-                    int start = cursor - 1, i = start;
-                    while (i >= 0 && !IsWordChar(buffer[i])) i--;
-                    while (i >= 0 && IsWordChar(buffer[i])) i--;
-                    int delFrom = Math.Max(0, i + 1);
-                    int delLen = cursor - delFrom;
-                    if (delLen > 0)
-                    {
-                        buffer.Remove(delFrom, delLen);
-                        cursor = delFrom;
-                        Render();
-                    }
-                }
-                continue;
-            }
-            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.Delete)
-            {
-                if (cursor < buffer.Length)
-                {
-                    int i = cursor;
-                    while (i < buffer.Length && !IsWordChar(buffer[i])) i++;
-                    while (i < buffer.Length && IsWordChar(buffer[i])) i++;
-                    int delLen = Math.Max(0, i - cursor);
-                    if (delLen > 0)
-                    {
-                        buffer.Remove(cursor, delLen);
-                        Render();
-                    }
-                }
-                continue;
-            }
+            if (key.Key == ConsoleKey.LeftArrow) { engine.Left(); Render(); continue; }
+            if (key.Key == ConsoleKey.RightArrow) { engine.Right(); Render(); continue; }
+            if (key.Key == ConsoleKey.Home) { engine.Home(); Render(); continue; }
+            if (key.Key == ConsoleKey.End) { engine.End(); Render(); continue; }
 
-            if (key.Key == ConsoleKey.Enter)
-            {
-                Console.WriteLine();
-                return (false, buffer.ToString());
-            }
-            if (key.Key == ConsoleKey.Backspace)
-            {
-                if (cursor > 0)
-                {
-                    buffer.Remove(cursor - 1, 1);
-                    cursor--;
-                    Render();
-                }
-                continue;
-            }
-            if (key.Key == ConsoleKey.Delete)
-            {
-                if (cursor < buffer.Length)
-                {
-                    buffer.Remove(cursor, 1);
-                    Render();
-                }
-                continue;
-            }
-            if (!char.IsControl(key.KeyChar))
-            {
-                buffer.Insert(cursor, key.KeyChar);
-                cursor++;
-                Render();
-                continue;
-            }
+            if (key.Key == ConsoleKey.Enter) { Console.WriteLine(); return (false, engine.Buffer.ToString()); }
+            if (key.Key == ConsoleKey.Backspace) { engine.Backspace(); Render(); continue; }
+            if (key.Key == ConsoleKey.Delete) { engine.Delete(); Render(); continue; }
+            if (!char.IsControl(key.KeyChar)) { engine.Insert(key.KeyChar); Render(); continue; }
         }
     }
 
