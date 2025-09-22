@@ -80,7 +80,7 @@ internal sealed class DefaultConsoleEx : IConsoleEx
     public int WindowWidth { get { try { return Console.WindowWidth; } catch { return 80; } } }
     public int WindowHeight { get { try { return Console.WindowHeight; } catch { return 40; } } }
     public int CursorLeft { get { try { return Console.CursorLeft; } catch { return 0; } } }
-    public int CursorTop  { get { try { return Console.CursorTop; }  catch { return 0; } } }
+    public int CursorTop { get { try { return Console.CursorTop; } catch { return 0; } } }
     public ConsoleColor ForegroundColor
     {
         get { try { return Console.ForegroundColor; } catch { return ConsoleColor.Gray; } }
@@ -90,5 +90,15 @@ internal sealed class DefaultConsoleEx : IConsoleEx
     public void Clear() { try { Console.Clear(); } catch { } }
     public void Write(string text) { try { Console.Write(text); } catch { } }
     public void Write(char ch) { try { Console.Write(ch); } catch { } }
-    public void WriteLine(string text) { try { Console.WriteLine(text); } catch { } }
+    public void WriteLine(string text)
+    {
+        try
+        {
+            Console.Write(text);
+            //By not writing the line break when cursor already overflows, we avoid extra empty lines when run inside the old conhost (cmd.exe) on Windows.
+            if ((Console.CursorLeft != 0))
+                Console.WriteLine();
+        }
+        catch { }
+    }
 }
