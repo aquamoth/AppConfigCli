@@ -6,7 +6,7 @@ using ItemState = AppConfigCli.ItemState;
 using FluentAssertions;
 using Xunit;
 
-public class EditorAppIntegrationTests
+public class _EditorAppIntegration
 {
     private static InMemoryConfigRepository SeedRepo()
     {
@@ -18,7 +18,7 @@ public class EditorAppIntegrationTests
     }
 
     [Fact]
-    public async Task Modify_and_save_updates_repo_and_roundtrips_to_unchanged()
+    public async Task modify_and_save_updates_repo_and_roundtrips_to_unchanged()
     {
         var repo = SeedRepo();
         var app = new EditorApp(repo, "p:", "dev");
@@ -40,7 +40,7 @@ public class EditorAppIntegrationTests
     }
 
     [Fact]
-    public async Task Delete_and_save_removes_from_repo()
+    public async Task delete_and_save_removes_from_repo()
     {
         var repo = SeedRepo();
         var app = new EditorApp(repo, "p:", "dev");
@@ -58,7 +58,7 @@ public class EditorAppIntegrationTests
     }
 
     [Fact]
-    public async Task Add_new_and_save_inserts_into_repo()
+    public async Task add_new_and_save_inserts_into_repo()
     {
         var repo = SeedRepo();
         var app = new EditorApp(repo, "p:", "dev");

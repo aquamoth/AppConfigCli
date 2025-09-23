@@ -4,7 +4,7 @@ using AppConfigCli;
 using FluentAssertions;
 using Xunit;
 
-public class BulkEditHelperTests
+public class _BulkEditHelper
 {
     private static List<Item> Seed()
     {
@@ -17,7 +17,7 @@ public class BulkEditHelperTests
     }
 
     [Fact]
-    public void Apply_bulk_edits_creates_updates_and_deletes()
+    public void ApplyEdits_creates_updates_and_deletes()
     {
         var items = Seed();
         var visible = items.Where(i => i.Label == "dev").ToList();
@@ -41,7 +41,7 @@ public class BulkEditHelperTests
     }
 
     [Fact]
-    public void Apply_bulk_edits_adds_new_item()
+    public void ApplyEdits_adds_new_item()
     {
         var items = Seed();
         var visible = items.Where(i => i.Label == "dev").ToList();

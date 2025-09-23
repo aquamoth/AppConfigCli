@@ -4,7 +4,7 @@ using AppConfigCli.Core;
 using FluentAssertions;
 using Xunit;
 
-public class ItemFilterTests
+public class _ItemFilter
 {
     private static List<Item> Sample()
     {
@@ -18,7 +18,7 @@ public class ItemFilterTests
     }
 
     [Fact]
-    public void Visible_any_label_returns_all()
+    public void visible_any_label_returns_all()
     {
         var src = Sample();
         var vis = ItemFilter.Visible(src, null, null);
@@ -26,7 +26,7 @@ public class ItemFilterTests
     }
 
     [Fact]
-    public void Visible_unlabeled_returns_only_empty_label()
+    public void visible_unlabeled_returns_only_empty_label()
     {
         var src = Sample();
         var vis = ItemFilter.Visible(src, string.Empty, null);
@@ -36,7 +36,7 @@ public class ItemFilterTests
     }
 
     [Fact]
-    public void Visible_literal_label_returns_only_that_label()
+    public void visible_literal_label_returns_only_that_label()
     {
         var src = Sample();
         var vis = ItemFilter.Visible(src, "dev", null);
@@ -45,7 +45,7 @@ public class ItemFilterTests
     }
 
     [Fact]
-    public void Visible_applies_regex_on_shortkey()
+    public void visible_applies_regex_on_shortkey()
     {
         var src = Sample();
         var regex = new Regex("^C", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -58,7 +58,7 @@ public class ItemFilterTests
     [InlineData(1, 1, new[] { 0 })]
     [InlineData(1, 2, new[] { 0, 1 })]
     [InlineData(2, 3, new[] { 1, 2 })]
-    public void Map_range_any_label(int start, int end, int[] expected)
+    public void map_range_any_label(int start, int end, int[] expected)
     {
         var src = Sample();
         var indices = ItemFilter.MapVisibleRangeToSourceIndices(src, null, null, start, end, out var error);
@@ -68,7 +68,7 @@ public class ItemFilterTests
     }
 
     [Fact]
-    public void Map_range_literal_label_and_regex()
+    public void map_range_literal_label_and_regex()
     {
         var src = Sample();
         var regex = new Regex("^C", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -79,7 +79,7 @@ public class ItemFilterTests
     }
 
     [Fact]
-    public void Map_range_out_of_bounds_returns_error()
+    public void map_range_out_of_bounds_returns_error()
     {
         var src = Sample();
         var indices = ItemFilter.MapVisibleRangeToSourceIndices(src, "prod", null, 2, 2, out var error);
@@ -88,7 +88,7 @@ public class ItemFilterTests
     }
 
     [Fact]
-    public void Visible_indices_match_expected_order()
+    public void visible_indices_match_expected_order()
     {
         var src = Sample();
         var regex = new Regex("^C", RegexOptions.Compiled | RegexOptions.IgnoreCase);

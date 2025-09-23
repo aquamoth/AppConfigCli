@@ -5,7 +5,7 @@ using AppConfigCli;
 using FluentAssertions;
 using Xunit;
 
-public class IndexMappingTests
+public class _IndexMapping
 {
     private static EditorApp MakeAppWithItems()
     {
@@ -22,7 +22,7 @@ public class IndexMappingTests
     }
 
     [Fact]
-    public void Maps_single_index_over_any_label()
+    public void maps_single_index_over_any_label()
     {
         var app = MakeAppWithItems();
         var idx1 = app.MapVisibleRangeToItemIndices(1, 1, out var err1);
@@ -34,7 +34,7 @@ public class IndexMappingTests
     }
 
     [Fact]
-    public void Respects_label_filter_and_unlabeled()
+    public void respects_label_filter_and_unlabeled()
     {
         var app = MakeAppWithItems();
         app.Label = "dev";
@@ -49,7 +49,7 @@ public class IndexMappingTests
     }
 
     [Fact]
-    public void Respects_key_regex()
+    public void respects_key_regex()
     {
         var app = MakeAppWithItems();
         app.KeyRegex = new Regex("^C", RegexOptions.IgnoreCase | RegexOptions.Compiled);
@@ -62,7 +62,7 @@ public class IndexMappingTests
     }
 
     [Fact]
-    public void Out_of_range_returns_error()
+    public void out_of_range_returns_error()
     {
         var app = MakeAppWithItems();
         var idx = app.MapVisibleRangeToItemIndices(4, 4, out var err);
@@ -70,4 +70,3 @@ public class IndexMappingTests
         err.Should().Be("Index out of range.");
     }
 }
-

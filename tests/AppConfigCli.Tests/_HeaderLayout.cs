@@ -1,12 +1,12 @@
 using FluentAssertions;
 using Xunit;
 
-public class HeaderLayoutTests
+public class _HeaderLayout
 {
     [Theory]
     [InlineData(40)]
     [InlineData(80)]
-    public void All_three_fit_on_one_line_when_space_allows(int width)
+    public void all_three_fit_on_one_line_when_space_allows(int width)
     {
         var lines = AppConfigCli.HeaderLayout.Compute(width, "Prefix: p:", "Label: dev", "Filter: user");
         lines.Count.Should().BeGreaterOrEqualTo(1);
@@ -15,7 +15,7 @@ public class HeaderLayoutTests
     }
 
     [Fact]
-    public void Two_lines_when_three_do_not_fit()
+    public void two_lines_when_three_do_not_fit()
     {
         int width = 20; // intentionally small
         var lines = AppConfigCli.HeaderLayout.Compute(width, "Prefix: verylongprefix/", "Label: dev", "Filter: hello");
@@ -23,7 +23,7 @@ public class HeaderLayoutTests
     }
 
     [Fact]
-    public void Center_label_when_only_label_present()
+    public void center_label_when_only_label_present()
     {
         int width = 40;
         var lines = AppConfigCli.HeaderLayout.Compute(width, null, "Label: dev", null);
@@ -36,7 +36,7 @@ public class HeaderLayoutTests
     }
 
     [Fact]
-    public void Label_center_and_filter_right_when_prefix_hidden_and_space_allows()
+    public void label_center_and_filter_right_when_prefix_hidden_and_space_allows()
     {
         int width = 60;
         var lines = AppConfigCli.HeaderLayout.Compute(width, null, "Label: dev", "Filter: foo");
@@ -46,4 +46,3 @@ public class HeaderLayoutTests
         segs[1].Pos.Should().Be(width - segs[1].Text.Length); // right-aligned
     }
 }
-

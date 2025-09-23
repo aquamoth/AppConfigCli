@@ -4,10 +4,10 @@ using FluentAssertions;
 using AppConfigCli.Core;
 using Xunit;
 
-public class AppStateReconcilerTests
+public class _AppStateReconciler
 {
     [Fact]
-    public void Modified_matching_server_becomes_Unchanged()
+    public void modified_matching_server_becomes_unchanged()
     {
         var prefix = "app:settings:";
         string? label = "dev";
@@ -33,7 +33,7 @@ public class AppStateReconcilerTests
     }
 
     [Fact]
-    public void Modified_deleted_on_server_becomes_New()
+    public void modified_deleted_on_server_becomes_new()
     {
         var prefix = "app:settings:";
         string? label = "dev";
@@ -56,7 +56,7 @@ public class AppStateReconcilerTests
     }
 
     [Fact]
-    public void Deleted_that_is_gone_on_server_is_dropped()
+    public void deleted_that_is_gone_on_server_is_dropped()
     {
         var prefix = "app:settings:";
         string? label = "dev";

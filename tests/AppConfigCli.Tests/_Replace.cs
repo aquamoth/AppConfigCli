@@ -7,7 +7,7 @@ using FluentAssertions;
 using Xunit;
 using ItemState = AppConfigCli.ItemState;
 
-public class ReplaceCommandTests
+public class _Replace
 {
     private static InMemoryConfigRepository SeedRepo()
     {
@@ -20,7 +20,7 @@ public class ReplaceCommandTests
     }
 
     [Fact]
-    public async Task ApplyReplace_replaces_across_visible_values_and_sets_state()
+    public async Task apply_replace_replaces_across_visible_values_and_sets_state()
     {
         var repo = SeedRepo();
         var app = new EditorApp(repo, "p:", "dev");
@@ -42,7 +42,7 @@ public class ReplaceCommandTests
     }
 
     [Fact]
-    public async Task ApplyReplace_uses_capture_groups()
+    public async Task apply_replace_uses_capture_groups()
     {
         var repo = new InMemoryConfigRepository(new[]
         {
@@ -61,7 +61,7 @@ public class ReplaceCommandTests
     }
 
     [Fact]
-    public async Task ApplyReplace_skips_deleted_items()
+    public async Task apply_replace_skips_deleted_items()
     {
         var repo = SeedRepo();
         var app = new EditorApp(repo, "p:", "dev");

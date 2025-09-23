@@ -1,10 +1,10 @@
 using FluentAssertions;
 using Xunit;
 
-public class LineEditorEngineTests
+public class _LineEditorEngine
 {
     [Fact]
-    public void Insert_and_basic_navigation()
+    public void insert_and_basic_navigation()
     {
         var e = new AppConfigCli.LineEditorEngine();
         e.SetInitial("");
@@ -17,7 +17,7 @@ public class LineEditorEngineTests
     }
 
     [Fact]
-    public void Backspace_and_delete()
+    public void backspace_and_delete()
     {
         var e = new AppConfigCli.LineEditorEngine();
         e.SetInitial("abc");
@@ -29,7 +29,7 @@ public class LineEditorEngineTests
     }
 
     [Fact]
-    public void Ctrl_word_navigation()
+    public void ctrl_word_navigation()
     {
         var e = new AppConfigCli.LineEditorEngine();
         e.SetInitial("foo-bar baz"); // punctuation splits words
@@ -43,7 +43,7 @@ public class LineEditorEngineTests
     }
 
     [Fact]
-    public void Ctrl_word_delete_and_backspace()
+    public void ctrl_word_delete_and_backspace()
     {
         var e = new AppConfigCli.LineEditorEngine();
         e.SetInitial("foo bar baz");
@@ -57,7 +57,7 @@ public class LineEditorEngineTests
     }
 
     [Fact]
-    public void Viewport_and_ellipses()
+    public void viewport_and_ellipses()
     {
         var e = new AppConfigCli.LineEditorEngine();
         e.SetInitial("abcdefghijklmnopqrstuvwxyz");
@@ -65,13 +65,13 @@ public class LineEditorEngineTests
         var width = 10;
         e.EnsureVisible(width);
         var view = e.GetView(width);
-        view.Should().StartWith("â€¦");
+        view.Should().StartWith("…");
         // At buffer end, trailing ellipsis is not shown
-        view.EndsWith("â€¦").Should().BeFalse();
+        view.EndsWith("…").Should().BeFalse();
         // Move to start and ensure leading ellipsis disappears
         e.Home();
         e.EnsureVisible(width);
         e.ScrollStart.Should().Be(0);
-        e.GetView(width).StartsWith("â€¦").Should().BeFalse();
+        e.GetView(width).StartsWith("…").Should().BeFalse();
     }
 }

@@ -5,10 +5,10 @@ using AppConfigCli.Core;
 using FluentAssertions;
 using Xunit;
 
-public class RepositoryTests
+public class _Repository
 {
     [Fact]
-    public async Task InMemory_List_filters_by_prefix_and_label()
+    public async Task in_memory_list_filters_by_prefix_and_label()
     {
         var seed = new[]
         {
@@ -30,7 +30,7 @@ public class RepositoryTests
     }
 
     [Fact]
-    public async Task InMemory_Upsert_and_Delete_roundtrip()
+    public async Task in_memory_upsert_and_delete_roundtrip()
     {
         var repo = new InMemoryConfigRepository();
         await repo.UpsertAsync(new ConfigEntry { Key = "p:Color", Label = "dev", Value = "red" });

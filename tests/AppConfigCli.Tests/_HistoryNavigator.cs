@@ -2,10 +2,10 @@ using AppConfigCli;
 using FluentAssertions;
 using Xunit;
 
-public class HistoryNavigatorTests
+public class _HistoryNavigator
 {
     [Fact]
-    public void UpDown_preserves_bottom_draft()
+    public void up_down_preserves_bottom_draft()
     {
         var history = new System.Collections.Generic.List<string> { "a", "b" };
         var nav = new HistoryNavigator(history);
@@ -32,7 +32,7 @@ public class HistoryNavigatorTests
     }
 
     [Fact]
-    public void Editing_recalled_command_switches_to_bottom_and_keeps_edits()
+    public void editing_recalled_command_switches_to_bottom_and_keeps_edits()
     {
         var history = new System.Collections.Generic.List<string> { "a", "b" };
         var nav = new HistoryNavigator(history);
@@ -53,7 +53,7 @@ public class HistoryNavigatorTests
     }
 
     [Fact]
-    public void Backspace_edit_on_recalled_switches_to_bottom()
+    public void backspace_edit_on_recalled_switches_to_bottom()
     {
         var history = new System.Collections.Generic.List<string> { "cmd" };
         var nav = new HistoryNavigator(history);

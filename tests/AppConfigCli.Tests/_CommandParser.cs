@@ -1,7 +1,7 @@
 using FluentAssertions;
 using Xunit;
 
-public class CommandParserTests
+public class _CommandParser
 {
     [Theory]
     [InlineData("add", typeof(AppConfigCli.Editor.Commands.Add))]
@@ -11,7 +11,7 @@ public class CommandParserTests
     [InlineData("reload", typeof(AppConfigCli.Editor.Commands.Reload))]
     [InlineData("help", typeof(AppConfigCli.Editor.Commands.Help))]
     [InlineData("q", typeof(AppConfigCli.Editor.Commands.Quit))]
-    public void Parses_simple_commands(string input, System.Type expected)
+    public void parses_simple_commands(string input, System.Type expected)
     {
         AppConfigCli.CommandParser.TryParse(input, out var cmd, out var err).Should().BeTrue();
         cmd.Should().NotBeNull();
@@ -22,7 +22,7 @@ public class CommandParserTests
     [Theory]
     [InlineData("3", 3)]
     [InlineData("10", 10)]
-    public void Parses_numeric_edit_with_index(string input, int idx)
+    public void parses_numeric_edit_with_index(string input, int idx)
     {
         AppConfigCli.CommandParser.TryParse(input, out var cmd, out var err).Should().BeTrue();
         cmd.Should().BeOfType<AppConfigCli.Editor.Commands.Edit>();
@@ -34,7 +34,7 @@ public class CommandParserTests
     [InlineData("delete 2 5", 2, 5)]
     [InlineData("d 7", 7, 7)]
     [InlineData("copy 1 3", 1, 3)]
-    public void Parses_range_commands(string input, int s, int e)
+    public void parses_range_commands(string input, int s, int e)
     {
         AppConfigCli.CommandParser.TryParse(input, out var cmd, out var err).Should().BeTrue();
         cmd.Should().NotBeNull();
@@ -52,7 +52,7 @@ public class CommandParserTests
     }
 
     [Fact]
-    public void Parses_label_clear_and_empty()
+    public void parses_label_clear_and_empty()
     {
         AppConfigCli.CommandParser.TryParse("l", out var clear, out _).Should().BeTrue();
         (clear as AppConfigCli.Editor.Commands.Label)!.Clear.Should().BeTrue();
@@ -65,7 +65,7 @@ public class CommandParserTests
     }
 
     [Fact]
-    public void Parses_grep_clear_and_value()
+    public void parses_grep_clear_and_value()
     {
         AppConfigCli.CommandParser.TryParse("g", out var clear, out _).Should().BeTrue();
         (clear as AppConfigCli.Editor.Commands.Grep)!.Clear.Should().BeTrue();
@@ -74,7 +74,7 @@ public class CommandParserTests
     }
 
     [Fact]
-    public void Parses_prefix_prompt_and_value()
+    public void parses_prefix_prompt_and_value()
     {
         AppConfigCli.CommandParser.TryParse("p", out var prompt, out _).Should().BeTrue();
         (prompt as AppConfigCli.Editor.Commands.Prefix)!.Prompt.Should().BeTrue();
@@ -83,7 +83,7 @@ public class CommandParserTests
     }
 
     [Fact]
-    public void Parses_json_yaml_separators()
+    public void parses_json_yaml_separators()
     {
         AppConfigCli.CommandParser.TryParse("json :", out var j, out _).Should().BeTrue();
         (j as AppConfigCli.Editor.Commands.Json)!.Separator.Should().Be(":");
@@ -92,7 +92,7 @@ public class CommandParserTests
     }
 
     [Fact]
-    public void Json_Yaml_default_separator_is_colon()
+    public void uses_color_separator_by_default_for_Json_and_Yaml()
     {
         AppConfigCli.CommandParser.TryParse("json", out var j0, out _).Should().BeTrue();
         (j0 as AppConfigCli.Editor.Commands.Json)!.Separator.Should().Be(":");
@@ -102,7 +102,7 @@ public class CommandParserTests
     }
 
     [Fact]
-    public void Unknown_command_errors()
+    public void outputs_error_for_unknown_commands()
     {
         AppConfigCli.CommandParser.TryParse("zzz", out var cmd, out var err).Should().BeFalse();
         cmd.Should().BeNull();
@@ -110,7 +110,7 @@ public class CommandParserTests
     }
 
     [Fact]
-    public void Parses_replace_command()
+    public void parses_replace_command()
     {
         AppConfigCli.CommandParser.TryParse("replace", out var cmd, out var err).Should().BeTrue();
         cmd.Should().NotBeNull();
