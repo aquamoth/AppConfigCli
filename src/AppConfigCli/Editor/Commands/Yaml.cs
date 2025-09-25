@@ -29,18 +29,18 @@ internal sealed record Yaml(string Separator) : Command
         await Task.CompletedTask;
         if (app.Label is null)
         {
-            Console.WriteLine("yaml requires an active label filter. Set one with l|label <value> first.");
-            Console.WriteLine("Press Enter to continue...");
-            Console.ReadLine();
+            app.ConsoleEx.WriteLine("yaml requires an active label filter. Set one with l|label <value> first.");
+            app.ConsoleEx.WriteLine("Press Enter to continue...");
+            app.ConsoleEx.ReadLine();
             return;
         }
 
         var sep = string.Join(' ', args);
         if (string.IsNullOrEmpty(sep))
         {
-            Console.WriteLine("Separator cannot be empty.");
-            Console.WriteLine("Press Enter to continue...");
-            Console.ReadLine();
+            app.ConsoleEx.WriteLine("Separator cannot be empty.");
+            app.ConsoleEx.WriteLine("Press Enter to continue...");
+            app.ConsoleEx.ReadLine();
             return;
         }
 
@@ -62,9 +62,9 @@ internal sealed record Yaml(string Separator) : Command
             try { app.ExternalEditor.Open(file); }
             catch (Exception ex)
             {
-                Console.WriteLine($"Failed to launch editor: {ex.Message}");
-                Console.WriteLine("Press Enter to continue...");
-                Console.ReadLine();
+                app.ConsoleEx.WriteLine($"Failed to launch editor: {ex.Message}");
+                app.ConsoleEx.WriteLine("Press Enter to continue...");
+                app.ConsoleEx.ReadLine();
                 return;
             }
 
@@ -75,9 +75,9 @@ internal sealed record Yaml(string Separator) : Command
             var (ok2, err2, c2, u2, d2) = StructuredEditHelper.ApplyYamlEdits(editedYaml, sep, app.Items, app.GetVisibleItems(), app.Prefix, app.Label);
             if (!ok2)
             {
-                Console.WriteLine($"Invalid YAML: {err2}");
-                Console.WriteLine("Press Enter to continue...");
-                Console.ReadLine();
+                app.ConsoleEx.WriteLine($"Invalid YAML: {err2}");
+                app.ConsoleEx.WriteLine("Press Enter to continue...");
+                app.ConsoleEx.ReadLine();
                 return;
             }
             app.ConsolidateDuplicates();

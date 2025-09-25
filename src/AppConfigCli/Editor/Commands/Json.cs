@@ -22,18 +22,18 @@ internal sealed record Json(string Separator) : Command
         await Task.CompletedTask;
         if (app.Label is null)
         {
-            Console.WriteLine("json requires an active label filter. Set one with l|label <value> first.");
-            Console.WriteLine("Press Enter to continue...");
-            Console.ReadLine();
+            app.ConsoleEx.WriteLine("json requires an active label filter. Set one with l|label <value> first.");
+            app.ConsoleEx.WriteLine("Press Enter to continue...");
+            app.ConsoleEx.ReadLine();
             return new CommandResult();
         }
 
         var sep = string.Join(' ', args);
         if (string.IsNullOrEmpty(sep))
         {
-            Console.WriteLine("Separator cannot be empty.");
-            Console.WriteLine("Press Enter to continue...");
-            Console.ReadLine();
+            app.ConsoleEx.WriteLine("Separator cannot be empty.");
+            app.ConsoleEx.WriteLine("Press Enter to continue...");
+            app.ConsoleEx.ReadLine();
             return new CommandResult();
         }
 
@@ -49,9 +49,9 @@ internal sealed record Json(string Separator) : Command
             try { app.ExternalEditor.Open(file); }
             catch (Exception ex)
             {
-                Console.WriteLine($"Failed to launch editor: {ex.Message}");
-                Console.WriteLine("Press Enter to continue...");
-                Console.ReadLine();
+                app.ConsoleEx.WriteLine($"Failed to launch editor: {ex.Message}");
+                app.ConsoleEx.WriteLine("Press Enter to continue...");
+                app.ConsoleEx.ReadLine();
                 return new CommandResult();
             }
 
@@ -60,9 +60,9 @@ internal sealed record Json(string Separator) : Command
             var (ok, err, cJ, uJ, dJ) = StructuredEditHelper.ApplyJsonEdits(editedJson, sep, app.Items, app.GetVisibleItems(), app.Prefix, app.Label);
             if (!ok)
             {
-                Console.WriteLine($"Invalid JSON: {err}");
-                Console.WriteLine("Press Enter to continue...");
-                Console.ReadLine();
+                app.ConsoleEx.WriteLine($"Invalid JSON: {err}");
+                app.ConsoleEx.WriteLine("Press Enter to continue...");
+                app.ConsoleEx.ReadLine();
                 return new CommandResult();
             }
             app.ConsolidateDuplicates();

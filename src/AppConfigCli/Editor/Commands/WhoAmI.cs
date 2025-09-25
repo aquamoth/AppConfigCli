@@ -19,11 +19,11 @@ internal sealed record WhoAmI() : Command
         }
         else
         {
-            Console.WriteLine("whoami not available in this mode.");
+            app.ConsoleEx.WriteLine("whoami not available in this mode.");
         }
 
-        Console.WriteLine("Press Enter to continue...");
-        Console.ReadLine();
+        app.ConsoleEx.WriteLine("Press Enter to continue...");
+        app.ConsoleEx.ReadLine();
 
         return new CommandResult();
     }

@@ -21,8 +21,7 @@ public class _EditorAppIntegration
     public async Task modify_and_save_updates_repo_and_roundtrips_to_unchanged()
     {
         var repo = SeedRepo();
-        var app = new EditorApp(repo, "p:", "dev");
-        await app.LoadAsync();
+        var app = await _Commands.InstrumentedEditorApp(repo, "dev");
 
         var color = app.Test_Items.Single(i => i.ShortKey == "Color");
         color.Value = "blue";
@@ -43,8 +42,7 @@ public class _EditorAppIntegration
     public async Task delete_and_save_removes_from_repo()
     {
         var repo = SeedRepo();
-        var app = new EditorApp(repo, "p:", "dev");
-        await app.LoadAsync();
+        var app = await _Commands.InstrumentedEditorApp(repo, "dev");
 
         var title = app.Test_Items.Single(i => i.ShortKey == "Title");
         title.State = ItemState.Deleted;
@@ -61,8 +59,7 @@ public class _EditorAppIntegration
     public async Task add_new_and_save_inserts_into_repo()
     {
         var repo = SeedRepo();
-        var app = new EditorApp(repo, "p:", "dev");
-        await app.LoadAsync();
+        var app = await _Commands.InstrumentedEditorApp(repo, "dev");
 
         app.Test_Items.Add(new AppConfigCli.Item { FullKey = "p:New", ShortKey = "New", Label = "dev", OriginalValue = null, Value = "val", State = ItemState.New });
 

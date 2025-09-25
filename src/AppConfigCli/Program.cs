@@ -4,6 +4,7 @@ using System.Text;
 using Azure.Identity;
 using Azure.Core;
 using System.Text.Json;
+using AppConfigCli.Editor.Abstractions;
 
 namespace AppConfigCli;
 
@@ -11,17 +12,17 @@ internal class Program
 {
     private static async Task<int> Main(string[] args)
     {
-        Console.OutputEncoding = Encoding.UTF8;
+        var console = new DefaultConsoleEx();
 
         var options = ParseArgs(args);
         if (options.ShowVersion)
         {
-            Console.WriteLine(VersionInfo.GetVersionLine());
+            console.WriteLine(VersionInfo.GetVersionLine());
             return 0;
         }
         if (options.ShowHelp)
         {
-            PrintHelp();
+            PrintHelp(console);
             return 0;
         }
 
@@ -35,7 +36,7 @@ internal class Program
             client = new ConfigurationClient(connStr);
             whoAmIAction = () =>
             {
-                Console.WriteLine("Auth: connection string");
+                console.WriteLine("Auth: connection string");
                 return Task.CompletedTask;
             };
         }
@@ -43,21 +44,21 @@ internal class Program
         {
             // Fallback to AAD auth via endpoint + interactive/device/browser auth
             var tenantId = options.TenantId ?? Environment.GetEnvironmentVariable("AZURE_TENANT_ID");
-            var credential = await BuildCredentialAsync(tenantId, options.Auth);
+            var credential = await BuildCredentialAsync(tenantId, options.Auth, console);
 
             var endpoint = options.Endpoint ?? Environment.GetEnvironmentVariable("APP_CONFIG_ENDPOINT");
             if (string.IsNullOrWhiteSpace(endpoint))
             {
-                Console.WriteLine("No endpoint provided. Discovering App Configuration stores via Azure…");
-                endpoint = await TrySelectEndpointAsync(credential);
+                console.WriteLine("No endpoint provided. Discovering App Configuration stores via Azure…");
+                endpoint = await TrySelectEndpointAsync(credential, console);
                 if (string.IsNullOrWhiteSpace(endpoint))
                 {
-                    Console.WriteLine("Could not list stores or none found. Enter endpoint manually (e.g., https://<name>.azconfig.io):");
-                    Console.Write("> ");
-                    endpoint = Console.ReadLine();
+                    console.WriteLine("Could not list stores or none found. Enter endpoint manually (e.g., https://<name>.azconfig.io):");
+                    console.Write("> ");
+                    endpoint = console.ReadLine();
                     if (string.IsNullOrWhiteSpace(endpoint))
                     {
-                        Console.Error.WriteLine("No endpoint provided. Exiting.");
+                        console.ErrorWriteLine("No endpoint provided. Exiting.");
                         return 2;
                     }
                 }
@@ -66,13 +67,22 @@ internal class Program
             var uri = NormalizeEndpoint(endpoint!);
             client = new ConfigurationClient(uri, credential);
             var authLabel = string.IsNullOrWhiteSpace(options.Auth) ? "auto" : options.Auth;
-            whoAmIAction = async () => await WhoAmIAsync(credential, uri);
+            whoAmIAction = async () => await WhoAmIAsync(credential, uri, console);
         }
 
         var repo = new AzureAppConfigRepository(client);
         // If no theme is specified, force the built-in 'default' preset
         var theme = ConsoleTheme.Load(options.Theme ?? "default", options.NoColor);
-        var app = new EditorApp(repo, options.Prefix, options.Label, whoAmIAction, theme: theme);
+        var app = new EditorApp(
+            repo, 
+            options.Prefix, 
+            options.Label, 
+            whoAmIAction,
+            new DefaultFileSystem(),
+            new DefaultExternalEditor(),
+            theme, 
+            console);
+
         try
         {
             // (obsolete nested tree helpers removed; structured editors use Core.FlatKeyMapper)
@@ -82,20 +92,20 @@ internal class Program
         }
         catch (RequestFailedException rfe) when (rfe.Status == 403)
         {
-            Console.Error.WriteLine("Forbidden (403): The signed-in identity lacks App Configuration data access.");
-            Console.Error.WriteLine("Grant App Configuration Data Reader (read) or Data Owner (read/write) on the target App Configuration resource.");
-            Console.Error.WriteLine("Alternatively, use a connection string in APP_CONFIG_CONNECTION_STRING.");
-            Console.Error.WriteLine("Tip: If you were silently authenticated via Azure CLI, try signing in interactively with a different account by logging out of Azure CLI or using the device code prompt.");
+            console.ErrorWriteLine("Forbidden (403): The signed-in identity lacks App Configuration data access.");
+            console.ErrorWriteLine("Grant App Configuration Data Reader (read) or Data Owner (read/write) on the target App Configuration resource.");
+            console.ErrorWriteLine("Alternatively, use a connection string in APP_CONFIG_CONNECTION_STRING.");
+            console.ErrorWriteLine("Tip: If you were silently authenticated via Azure CLI, try signing in interactively with a different account by logging out of Azure CLI or using the device code prompt.");
             return 1;
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Error: {ex.Message}");
+            console.ErrorWriteLine($"Error: {ex.Message}");
             return 1;
         }
     }
 
-    private static async Task<TokenCredential> BuildCredentialAsync(string? tenantId, string? authMode)
+    private static async Task<TokenCredential> BuildCredentialAsync(string? tenantId, string? authMode, IConsoleEx console)
     {
         var browser = new InteractiveBrowserCredential(new InteractiveBrowserCredentialOptions
         {
@@ -113,12 +123,12 @@ internal class Program
             ClientId = "04b07795-8ddb-461a-bbee-02f9e1bf7b46",
             DeviceCodeCallback = (code, ct) =>
             {
-                Console.WriteLine();
-                Console.WriteLine("To sign in, open the browser to:");
-                Console.WriteLine(code.VerificationUri);
-                Console.WriteLine("and enter the code:");
-                Console.WriteLine(code.UserCode);
-                Console.WriteLine();
+                console.WriteLine();
+                console.WriteLine("To sign in, open the browser to:");
+                console.WriteLine(code.VerificationUri.ToString());
+                console.WriteLine("and enter the code:");
+                console.WriteLine(code.UserCode);
+                console.WriteLine();
                 return Task.CompletedTask;
             }
         });
@@ -206,7 +216,7 @@ internal class Program
         return false;
     }
 
-    private static async Task WhoAmIAsync(TokenCredential credential, Uri endpoint)
+    private static async Task WhoAmIAsync(TokenCredential credential, Uri endpoint, IConsoleEx console)
     {
         try
         {
@@ -214,20 +224,20 @@ internal class Program
             var token = await credential.GetTokenAsync(ctx, default);
             var payload = DecodeJwtPayload(token.Token);
             string GetStr(string name) => payload.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
-            Console.WriteLine("Auth: Azure AD token");
-            Console.WriteLine($"Endpoint: {endpoint}");
-            Console.WriteLine($"TenantId (tid): {GetStr("tid")}");
-            Console.WriteLine($"ObjectId (oid): {GetStr("oid")}");
-            Console.WriteLine($"User/UPN: {GetStr("preferred_username")}");
-            Console.WriteLine($"AppId (appid): {GetStr("appid")}");
+            console.WriteLine("Auth: Azure AD token");
+            console.WriteLine($"Endpoint: {endpoint}");
+            console.WriteLine($"TenantId (tid): {GetStr("tid")}");
+            console.WriteLine($"ObjectId (oid): {GetStr("oid")}");
+            console.WriteLine($"User/UPN: {GetStr("preferred_username")}");
+            console.WriteLine($"AppId (appid): {GetStr("appid")}");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"whoami failed: {ex.Message}");
+            console.WriteLine($"whoami failed: {ex.Message}");
         }
     }
 
-    private static async Task<string?> TrySelectEndpointAsync(TokenCredential credential)
+    private static async Task<string?> TrySelectEndpointAsync(TokenCredential credential, IConsoleEx console)
     {
         try
         {
@@ -288,15 +298,15 @@ internal class Program
 
             if (stores.Count == 0) return null;
 
-            Console.WriteLine();
-            Console.WriteLine("Select App Configuration store:");
+            console.WriteLine();
+            console.WriteLine("Select App Configuration store:");
             for (int i = 0; i < stores.Count; i++)
             {
                 var s = stores[i];
-                Console.WriteLine($"  {i + 1}. {s.Name}  rg:{s.ResourceGroup}  loc:{s.Location}  {s.Endpoint}");
+                console.WriteLine($"  {i + 1}. {s.Name}  rg:{s.ResourceGroup}  loc:{s.Location}  {s.Endpoint}");
             }
-            Console.Write("Choice [1-" + stores.Count + "]: ");
-            var sel = Console.ReadLine();
+            console.Write("Choice [1-" + stores.Count + "]: ");
+            var sel = console.ReadLine();
             if (int.TryParse(sel, out var idx) && idx >= 1 && idx <= stores.Count)
             {
                 return stores[idx - 1].Endpoint;
@@ -347,27 +357,27 @@ internal class Program
         return JsonDocument.Parse(doc.RootElement.GetRawText()).RootElement;
     }
 
-    private static void PrintHelp()
+    private static void PrintHelp(IConsoleEx console)
     {
-        Console.WriteLine("Azure App Configuration Section Editor");
-        Console.WriteLine();
-        Console.WriteLine("Usage: AppConfigCli [options]");
-        Console.WriteLine();
-        Console.WriteLine("Options:");
-        Console.WriteLine("  --prefix <value>              Optional. Key prefix (section) to load initially");
-        Console.WriteLine("  --label <value>               Optional. Label filter");
-        Console.WriteLine("  --endpoint <url>              Optional. App Configuration endpoint for AAD auth");
-        Console.WriteLine("  --tenant <guid>               Optional. Entra ID tenant for AAD auth");
-        Console.WriteLine("  --auth <mode>                 Optional. Auth method: auto|device|browser|cli|vscode (default: auto)");
-        Console.WriteLine("  --theme <name>                Optional. Theme preset: default|mono|no-color|solarized");
-        Console.WriteLine("  --no-color                    Optional. Disable color output (overrides theme)");
-        Console.WriteLine("  --version                     Print version and exit");
-        Console.WriteLine();
-        Console.WriteLine("Environment:");
-        Console.WriteLine("  APP_CONFIG_CONNECTION_STRING  Azure App Configuration connection string");
-        Console.WriteLine("  APP_CONFIG_ENDPOINT           App Configuration endpoint (AAD auth)");
-        Console.WriteLine("  AZURE_TENANT_ID               Entra ID tenant to authenticate against (AAD)");
-        Console.WriteLine();
+        console.WriteLine("Azure App Configuration Section Editor");
+        console.WriteLine();
+        console.WriteLine("Usage: AppConfigCli [options]");
+        console.WriteLine();
+        console.WriteLine("Options:");
+        console.WriteLine("  --prefix <value>              Optional. Key prefix (section) to load initially");
+        console.WriteLine("  --label <value>               Optional. Label filter");
+        console.WriteLine("  --endpoint <url>              Optional. App Configuration endpoint for AAD auth");
+        console.WriteLine("  --tenant <guid>               Optional. Entra ID tenant for AAD auth");
+        console.WriteLine("  --auth <mode>                 Optional. Auth method: auto|device|browser|cli|vscode (default: auto)");
+        console.WriteLine("  --theme <name>                Optional. Theme preset: default|mono|no-color|solarized");
+        console.WriteLine("  --no-color                    Optional. Disable color output (overrides theme)");
+        console.WriteLine("  --version                     Print version and exit");
+        console.WriteLine();
+        console.WriteLine("Environment:");
+        console.WriteLine("  APP_CONFIG_CONNECTION_STRING  Azure App Configuration connection string");
+        console.WriteLine("  APP_CONFIG_ENDPOINT           App Configuration endpoint (AAD auth)");
+        console.WriteLine("  AZURE_TENANT_ID               Entra ID tenant to authenticate against (AAD)");
+        console.WriteLine();
     }
 
     private static Options ParseArgs(string[] args)

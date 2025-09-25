@@ -1,3 +1,4 @@
+using AppConfigCli.Editor.Abstractions;
 using System.Globalization;
 using System.Text;
 using System.Threading.Tasks;
@@ -36,7 +37,7 @@ internal sealed record Edit(int Index) : Command
         var label = item.Label ?? "(none)";
         // Colorized header: key colored, label plain
         app.ConsoleEx.Write("Editing '");
-        WriteColoredInline(item.ShortKey, app.Theme);
+        WriteColoredInline(item.ShortKey, app.Theme, app.ConsoleEx);
         app.ConsoleEx.Write("' [" + label + "]  (Enter to save)\n");
         app.ConsoleEx.Write("> ");
         var res = app.ReadLineWithPagingCancelable(
@@ -57,39 +58,39 @@ internal sealed record Edit(int Index) : Command
         return Task.FromResult(new CommandResult());
     }
 
-    private static void WriteColoredInline(string text, ConsoleTheme theme)
+    private static void WriteColoredInline(string text, ConsoleTheme theme, IConsoleEx console)
     {
-        var prev = Console.ForegroundColor;
+        var prev = console.ForegroundColor;
         foreach (var ch in text)
         {
             var color = EditorApp.ClassifyColorFor(theme, ch);
-            if (Console.ForegroundColor != color) Console.ForegroundColor = color;
-            Console.Write(ch);
+            if (console.ForegroundColor != color) console.ForegroundColor = color;
+            console.Write(ch);
         }
-        if (Console.ForegroundColor != prev) Console.ForegroundColor = prev;
+        if (console.ForegroundColor != prev) console.ForegroundColor = prev;
     }
 
-    internal static string? ReadLineWithInitial(string initial, ConsoleTheme theme)
+    internal static string? ReadLineWithInitial(string initial, ConsoleTheme theme, IConsoleEx console)
     {
         var buffer = new StringBuilder(initial);
         int cursor = buffer.Length; // insertion index in buffer
-        int startLeft = Console.CursorLeft;
-        int startTop = Console.CursorTop;
+        int startLeft = console.CursorLeft;
+        int startTop = console.CursorTop;
         int scrollStart = 0; // index in buffer where the viewport starts
 
         // If there is effectively no room on this line, move to a fresh line
-        int initialAvail = Math.Max(0, Console.WindowWidth - startLeft - 1);
+        int initialAvail = Math.Max(0, console.WindowWidth - startLeft - 1);
         if (initialAvail < 10)
         {
-            Console.WriteLine();
+            console.WriteLine();
             startLeft = 0;
-            startTop = Console.CursorTop;
+            startTop = console.CursorTop;
         }
 
         void Render()
         {
             int winWidth;
-            try { winWidth = Console.WindowWidth; }
+            try { winWidth = console.WindowWidth; }
             catch { winWidth = 80; }
 
             int contentWidth = Math.Max(1, winWidth - startLeft - 1);
@@ -112,27 +113,27 @@ internal sealed record Edit(int Index) : Command
             }
 
             // Render view padded to the full content width to clear remnants, with per-char colors
-            Console.SetCursorPosition(startLeft, startTop);
-            var prev = Console.ForegroundColor;
+            console.SetCursorPosition(startLeft, startTop);
+            var prev = console.ForegroundColor;
             int vlen = Math.Min(view.Length, contentWidth);
             for (int i = 0; i < vlen; i++)
             {
                 var ch = view[i];
                 var color = EditorApp.ClassifyColorFor(theme, ch);
-                if (Console.ForegroundColor != color) Console.ForegroundColor = color;
-                Console.Write(ch);
+                if (console.ForegroundColor != color) console.ForegroundColor = color;
+                console.Write(ch);
             }
             if (vlen < contentWidth)
             {
-                if (Console.ForegroundColor != theme.Default) Console.ForegroundColor = theme.Default;
-                Console.Write(new string(' ', contentWidth - vlen));
+                if (console.ForegroundColor != theme.Default) console.ForegroundColor = theme.Default;
+                console.Write(new string(' ', contentWidth - vlen));
             }
-            if (Console.ForegroundColor != prev) Console.ForegroundColor = prev;
+            if (console.ForegroundColor != prev) console.ForegroundColor = prev;
 
             // Place cursor within the view
             int cursorCol = startLeft + Math.Min(cursor - scrollStart, contentWidth - 1);
             int safeCol = Math.Min(Math.Max(0, winWidth - 1), Math.Max(0, cursorCol));
-            try { Console.SetCursorPosition(safeCol, startTop); } catch { }
+            try { console.SetCursorPosition(safeCol, startTop); } catch { }
         }
 
         // Initial render
@@ -140,20 +141,20 @@ internal sealed record Edit(int Index) : Command
 
         while (true)
         {
-            var key = Console.ReadKey(intercept: true);
+            var key = console.ReadKey(intercept: true);
             if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.C)
             {
-                Console.WriteLine();
+                console.WriteLine();
                 return null; // cancel like ESC
             }
             if (key.Key == ConsoleKey.Enter)
             {
-                Console.WriteLine();
+                console.WriteLine();
                 return buffer.ToString();
             }
             else if (key.Key == ConsoleKey.Escape)
             {
-                Console.WriteLine();
+                console.WriteLine();
                 return null; // cancel editing; caller will not apply changes
             }
             else if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.LeftArrow)

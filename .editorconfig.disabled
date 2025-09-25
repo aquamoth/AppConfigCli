@@ -1,0 +1,14 @@
+root = true
+
+[tests/**/*.cs]
+dotnet_diagnostic.IDE1006.severity = none  # naming styles
+dotnet_diagnostic.SA1300.severity = none   # element must begin with upper-case
+
+# Optional: custom naming style allowing underscores for methods
+dotnet_naming_rule.test_methods_require_snake_case.symbols = test_methods
+dotnet_naming_rule.test_methods_require_snake_case.style = snake
+dotnet_naming_symbols.test_methods.applicable_kinds = method
+dotnet_naming_symbols.test_methods.applicable_accessibilities = public
+dotnet_naming_symbols.test_methods.required_modifiers = [Fact],[Theory]
+dotnet_naming_style.snake.capitalization = all_lower
+dotnet_naming_style.snake.word_separator = _

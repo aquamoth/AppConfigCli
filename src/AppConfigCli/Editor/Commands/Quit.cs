@@ -19,14 +19,14 @@ internal sealed record Quit() : Command
     {
         if (app.HasPendingChanges(out var newCount, out var modCount, out var delCount))
         {
-            Console.WriteLine($"You have unsaved changes: +{newCount} new, *{modCount} modified, -{delCount} deleted.");
-            Console.WriteLine("Do you want to save before exiting?");
-            Console.WriteLine("  S) Save and quit");
-            Console.WriteLine("  Q) Quit without saving");
-            Console.WriteLine("  C) Cancel");
+            app.ConsoleEx.WriteLine($"You have unsaved changes: +{newCount} new, *{modCount} modified, -{delCount} deleted.");
+            app.ConsoleEx.WriteLine("Do you want to save before exiting?");
+            app.ConsoleEx.WriteLine("  S) Save and quit");
+            app.ConsoleEx.WriteLine("  Q) Quit without saving");
+            app.ConsoleEx.WriteLine("  C) Cancel");
             while (true)
             {
-                Console.Write("> ");
+                app.ConsoleEx.Write("> ");
                 var (ctrlC, input) = app.ReadLineOrCtrlC_Engine();
                 if (ctrlC) return false; // treat Ctrl+C here as cancel
                 var choice = (input ?? string.Empty).Trim().ToLowerInvariant();
@@ -35,7 +35,7 @@ internal sealed record Quit() : Command
                 if (ch == 'c') return false; // cancel quit
                 if (ch == 's') { await app.SaveAsync(pause: false); return true; }
                 if (ch == 'q') { return true; }
-                Console.WriteLine("Please enter S, Q, or C.");
+                app.ConsoleEx.WriteLine("Please enter S, Q, or C.");
             }
         }
         return true;

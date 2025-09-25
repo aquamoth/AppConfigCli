@@ -1,5 +1,6 @@
 using AppConfigCli.Core;
 using AppConfigCli.Core.UI;
+using AppConfigCli.Editor.Abstractions;
 using Azure;
 using System;
 using System.Collections.Generic;
@@ -41,20 +42,20 @@ internal sealed class EditorApp
         IConfigRepository repo,
         string? prefix,
         string? label,
-        Func<Task>? whoAmI = null,
-        IFileSystem? fs = null,
-        IExternalEditor? externalEditor = null,
-        ConsoleTheme? theme = null,
-        IConsoleEx? consoleEx = null)
+        Func<Task> whoAmI,
+        IFileSystem fs,
+        IExternalEditor externalEditor,
+        ConsoleTheme theme,
+        IConsoleEx consoleEx)
     {
         _repo = repo;
         Prefix = prefix;
         Label = label;
         WhoAmI = whoAmI;
-        Filesystem = fs ?? new DefaultFileSystem();
-        ExternalEditor = externalEditor ?? new DefaultExternalEditor();
-        Theme = theme ?? ConsoleTheme.Load();
-        ConsoleEx = consoleEx ?? new DefaultConsoleEx();
+        Filesystem = fs;
+        ExternalEditor = externalEditor;
+        Theme = theme;
+        ConsoleEx = consoleEx;
     }
 
     internal IConsoleEx ConsoleEx { get; init; }

@@ -1,3 +1,5 @@
+using AppConfigCli.Editor.Abstractions;
+
 namespace AppConfigCli.Editor.Commands;
 
 internal sealed record Help() : Command
@@ -45,22 +47,22 @@ internal sealed record Help() : Command
         var displaySpecs = displayAliases.Select(a => FindSpec(a)).Where(s => s is not null)!.Cast<Command.CommandSpec>()
             .OrderBy(s => LongAlias(s), StringComparer.OrdinalIgnoreCase);
         foreach (var s in displaySpecs)
-            WriteCommandLine(s);
+            WriteCommandLine(s, app.ConsoleEx);
         app.ConsoleEx.WriteLine();
-        WriteWrappedRow("PageUp/PageDown key", "Change page when list is longer than screen");
+        WriteWrappedRow("PageUp/PageDown key", "Change page when list is longer than screen", app.ConsoleEx);
         app.ConsoleEx.WriteLine();
 
         // Inline editing group (numeric edit first)
         app.ConsoleEx.WriteLine("Inline editing");
         // Numeric edit hint (no short alias; indent 5 spaces) shown before other items
-        WriteWrappedRow("     <n>", "Edit value of item number n");
+        WriteWrappedRow("     <n>", "Edit value of item number n", app.ConsoleEx);
         var editAliases = new[] { "add", /* "edit" removed: numeric input edits */ "delete", "copy", "replace", "save", "undo" };
         var editSpecs = editAliases.Select(a => FindSpec(a)).Where(s => s is not null)!.Cast<Command.CommandSpec>()
             .OrderBy(s => LongAlias(s), StringComparer.OrdinalIgnoreCase);
         foreach (var s in editSpecs)
-            WriteCommandLine(s);
+            WriteCommandLine(s, app.ConsoleEx);
         app.ConsoleEx.WriteLine();
-        WriteWrappedRow("Up/Down key", "Browse command history at the prompt");
+        WriteWrappedRow("Up/Down key", "Browse command history at the prompt", app.ConsoleEx);
         app.ConsoleEx.WriteLine();
 
         // External editor group (sorted)
@@ -69,7 +71,7 @@ internal sealed record Help() : Command
         var externalSpecs = externalAliases.Select(a => FindSpec(a)).Where(s => s is not null)!.Cast<Command.CommandSpec>()
             .OrderBy(s => LongAlias(s), StringComparer.OrdinalIgnoreCase);
         foreach (var s in externalSpecs)
-            WriteCommandLine(s);
+            WriteCommandLine(s, app.ConsoleEx);
         app.ConsoleEx.WriteLine();
 
         app.ConsoleEx.WriteLine("Press Enter to return to the list...");
@@ -105,14 +107,14 @@ internal sealed record Help() : Command
     private static string FormatSummary(Command.CommandSpec s)
         => (s.Summary ?? string.Empty).Replace("|", ", ");
 
-    private static void WriteCommandLine(Command.CommandSpec s)
+    private void WriteCommandLine(Command.CommandSpec s, IConsoleEx console)
     {
         var summary = FormatSummary(s);
         var indent = HasShortAlias(s) ? "  " : "     ";
-        WriteWrappedRow(indent + summary, s.Description);
+        WriteWrappedRow(indent + summary, s.Description, console);
     }
 
-    private static void WriteWrappedRow(string left, string description)
+    private static void WriteWrappedRow(string left, string description, IConsoleEx console)
     {
         const int maxWidth = 80; // fixed per requirement
         const int col = 26; // left column width; description starts at col+1 (1-based pos 27)
@@ -121,17 +123,17 @@ internal sealed record Help() : Command
 
         if (chunks.Count == 0)
         {
-            Console.WriteLine(Row(left, string.Empty));
+            console.WriteLine(Row(left, string.Empty));
             return;
         }
 
         // First line with left label
-        Console.WriteLine(Row(left, chunks[0]));
+        console.WriteLine(Row(left, chunks[0]));
         // Continuations aligned with description start
         string contPad = new string(' ', col);
         for (int i = 1; i < chunks.Count; i++)
         {
-            Console.WriteLine(contPad + chunks[i]);
+            console.WriteLine(contPad + chunks[i]);
         }
     }
 

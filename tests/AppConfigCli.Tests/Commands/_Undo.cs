@@ -36,8 +36,7 @@ public partial class _Commands
         {
             // Arrange
             var repo = SeedRepo();
-            var app = new EditorApp(repo, prefix: "p:", label: "original");
-            await app.LoadAsync();
+            var app = await InstrumentedEditorApp(repo, "original");
 
             // Sanity: visible rows for label: original
             var visibleBefore = app.GetVisibleItems();
@@ -47,17 +46,9 @@ public partial class _Commands
                 .ToDictionary(i => i.ShortKey, i => (Value: i.Value, State: i.State));
 
             // Act: invoke the Undo command for 'all'
-            var originalIn = Console.In;
-            try
-            {
-                Console.SetIn(new StringReader(Environment.NewLine)); // satisfy "Press Enter to continue..."
-                var cmd = new Undo(-1, -1); // -1/-1 maps to "all"
-                await cmd.ExecuteAsync(app);
-            }
-            finally
-            {
-                Console.SetIn(originalIn);
-            }
+            consoleEx.EnqueueInput(Environment.NewLine); // satisfy "Press Enter to continue..."
+            var cmd = new Undo(-1, -1); // -1/-1 maps to "all"
+            await cmd.ExecuteAsync(app);
 
             // Assert: label filter should still be "original"
             app.Label.Should().Be("original");

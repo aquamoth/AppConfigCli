@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Text.RegularExpressions;
 using System.Threading.Tasks;
 using AppConfigCli;
+using AppConfigCli.Editor.Abstractions;
 using FluentAssertions;
 using Xunit;
 
@@ -11,7 +12,17 @@ public class _IndexMapping
     {
         // Repo not used by MapVisibleRangeToItemIndices; provide a minimal in-memory repo
         var repo = new AppConfigCli.Core.InMemoryConfigRepository(new List<AppConfigCli.Core.ConfigEntry>());
-        var app = new EditorApp(repo, "p:", null);
+
+        var app = new EditorApp(
+            repo,
+            prefix: "p:",
+            null,
+            () => Task.CompletedTask,
+            new DefaultFileSystem(),
+            new DefaultExternalEditor(),
+            ConsoleTheme.Load(),
+            new DefaultConsoleEx());
+
         app.Test_Items.AddRange(new[]
         {
             new Item { FullKey = "p:Color", ShortKey = "Color", Label = "dev", OriginalValue = "red", Value = "red", State = ItemState.Unchanged },

@@ -23,8 +23,7 @@ public class _Replace
     public async Task apply_replace_replaces_across_visible_values_and_sets_state()
     {
         var repo = SeedRepo();
-        var app = new EditorApp(repo, "p:", "dev");
-        await app.LoadAsync();
+        var app = await _Commands.InstrumentedEditorApp(repo, "dev");
 
         var rx = new Regex("Hello", RegexOptions.Compiled);
         var (items, matches) = AppConfigCli.Editor.Commands.Replace.ApplyReplace(app, rx, "Hi");
@@ -48,8 +47,7 @@ public class _Replace
         {
             new ConfigEntry { Key = "p:Path", Label = "dev", Value = "a/b/c" },
         });
-        var app = new EditorApp(repo, "p:", "dev");
-        await app.LoadAsync();
+        var app = await _Commands.InstrumentedEditorApp(repo, "dev");
 
         var rx = new Regex("([a-z])/([a-z])/([a-z])", RegexOptions.Compiled);
         var result = AppConfigCli.Editor.Commands.Replace.ApplyReplace(app, rx, "$3-$2-$1");
@@ -64,8 +62,7 @@ public class _Replace
     public async Task apply_replace_skips_deleted_items()
     {
         var repo = SeedRepo();
-        var app = new EditorApp(repo, "p:", "dev");
-        await app.LoadAsync();
+        var app = await _Commands.InstrumentedEditorApp(repo, "dev");
 
         var note = app.Test_Items.Single(i => i.ShortKey == "Note");
         note.State = ItemState.Deleted;

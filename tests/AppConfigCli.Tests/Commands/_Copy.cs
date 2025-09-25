@@ -4,12 +4,31 @@ using System.Linq;
 using System.Threading.Tasks;
 using AppConfigCli;
 using AppConfigCli.Core;
+using AppConfigCli.Editor.Abstractions;
 using AppConfigCli.Editor.Commands;
 using FluentAssertions;
 using Xunit;
 
 public partial class _Commands
 {
+    internal static readonly TestConsoleEx consoleEx = new TestConsoleEx();
+
+    internal static async Task<EditorApp> InstrumentedEditorApp(InMemoryConfigRepository repo, string label)
+    {
+        var app = new EditorApp(
+            repo,
+            prefix: "p:",
+            label,
+            () => Task.CompletedTask,
+            new DefaultFileSystem(),
+            new DefaultExternalEditor(),
+            ConsoleTheme.Load(),
+            consoleEx);
+
+        await app.LoadAsync();
+        return app;
+    }
+
     public class _Copy
     {
         private static InMemoryConfigRepository SeedRepo()
@@ -36,8 +55,7 @@ public partial class _Commands
         {
             // Arrange
             var repo = SeedRepo();
-            var app = new EditorApp(repo, prefix: "p:", label: "original");
-            await app.LoadAsync();
+            var app = await InstrumentedEditorApp(repo, "original");
 
             // Sanity: only two visible rows (label: original)
             var visible = app.GetVisibleItems();
@@ -52,19 +70,11 @@ public partial class _Commands
             var hidC = hiddenBefore.First(e => e.Key == "p:C").Value;
 
             // Prepare console input for the Copy prompt: target label name
-            var originalIn = Console.In;
-            try
-            {
-                Console.SetIn(new StringReader("target" + Environment.NewLine));
+            consoleEx.EnqueueInput("target" + Environment.NewLine);
 
-                // Act: invoke the Copy command for range 1-2
-                var cmd = new Copy(1, 2);
-                await cmd.ExecuteAsync(app);
-            }
-            finally
-            {
-                Console.SetIn(originalIn);
-            }
+            // Act: invoke the Copy command for range 1-2
+            var cmd = new Copy(1, 2);
+            await cmd.ExecuteAsync(app);
 
             // Assert: label filter should now be "target" (not cleared to null/any)
             app.Label.Should().Be("target");
