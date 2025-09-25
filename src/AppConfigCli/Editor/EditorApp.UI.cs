@@ -499,57 +499,48 @@ internal sealed class EditorApp
 
     public async Task RunAsync()
     {
-        var prevTreatCtrlC = ConsoleEx.TreatControlCAsInput;
-        ConsoleEx.TreatControlCAsInput = true;
-        try
+        while (true)
         {
-            while (true)
+            Render();
+            var (ctrlC, input) = ReadLineOrCtrlC_Engine(
+                CommandHistory,
+                onRepaint: () =>
+                {
+                    Render();
+                    return (ConsoleEx.CursorLeft, ConsoleEx.CursorTop);
+                },
+                onPageUp: () => PageUp(),
+                onPageDown: () => PageDown());
+            if (ctrlC)
             {
-                Render();
-                var (ctrlC, input) = ReadLineOrCtrlC_Engine(
-                    CommandHistory,
-                    onRepaint: () =>
-                    {
-                        Render();
-                        return (ConsoleEx.CursorLeft, ConsoleEx.CursorTop);
-                    },
-                    onPageUp: () => PageUp(),
-                    onPageDown: () => PageDown());
-                if (ctrlC)
-                {
-                    var quit = new Editor.Commands.Quit();
-                    var shouldExit = await quit.TryQuitAsync(this);
-                    if (shouldExit) return;
-                    // back to main screen
-                    continue;
-                }
-                if (input is null) continue;
-                if (!CommandParser.TryParse(input, out var cmd, out var err) || cmd is null)
-                {
-                    if (!string.IsNullOrEmpty(err))
-                    {
-                        ConsoleEx.WriteLine(err);
-                        ConsoleEx.WriteLine("Press Enter to continue...");
-                        ConsoleEx.ReadLine();
-                    }
-                    continue;
-                }
-                var result = await cmd.ExecuteAsync(this);
-                // Add executed command to history unless it is a duplicate of the last entry
-                if (!string.IsNullOrWhiteSpace(input))
-                {
-                    var last = CommandHistory.Count > 0 ? CommandHistory[^1] : null;
-                    if (!string.Equals(last, input, StringComparison.Ordinal))
-                    {
-                        CommandHistory.Add(input);
-                    }
-                }
-                if (result.ShouldExit) return;
+                var quit = new Editor.Commands.Quit();
+                var shouldExit = await quit.TryQuitAsync(this);
+                if (shouldExit) return;
+                // back to main screen
+                continue;
             }
-        }
-        finally
-        {
-            ConsoleEx.TreatControlCAsInput = prevTreatCtrlC;
+            if (input is null) continue;
+            if (!CommandParser.TryParse(input, out var cmd, out var err) || cmd is null)
+            {
+                if (!string.IsNullOrEmpty(err))
+                {
+                    ConsoleEx.WriteLine(err);
+                    ConsoleEx.WriteLine("Press Enter to continue...");
+                    ConsoleEx.ReadLine();
+                }
+                continue;
+            }
+            var result = await cmd.ExecuteAsync(this);
+            // Add executed command to history unless it is a duplicate of the last entry
+            if (!string.IsNullOrWhiteSpace(input))
+            {
+                var last = CommandHistory.Count > 0 ? CommandHistory[^1] : null;
+                if (!string.Equals(last, input, StringComparison.Ordinal))
+                {
+                    CommandHistory.Add(input);
+                }
+            }
+            if (result.ShouldExit) return;
         }
     }
 
@@ -658,6 +649,8 @@ internal sealed class EditorApp
         }
 
         Render();
+
+        //TODO: Dedup with line 584+
         while (true)
         {
             // Resize repaint

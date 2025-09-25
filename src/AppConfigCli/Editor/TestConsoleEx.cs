@@ -15,7 +15,6 @@ internal sealed class TestConsoleEx : IConsoleEx
     public int CursorTop { get; private set; }
     public ConsoleColor ForegroundColor { get; set; } = ConsoleColor.Gray;
     public ConsoleColor BackgroundColor { get; set; } = ConsoleColor.Black;
-    public bool TreatControlCAsInput { get; set; }
 
     public bool KeyAvailable => false; // not used in tests that feed ReadLine
 

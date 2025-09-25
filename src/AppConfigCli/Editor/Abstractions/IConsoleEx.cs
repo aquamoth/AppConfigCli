@@ -9,7 +9,6 @@ internal interface IConsoleEx
     int CursorTop { get; }
     ConsoleColor ForegroundColor { get; set; }
     ConsoleColor BackgroundColor { get; set; }
-    bool TreatControlCAsInput { get; set; }
     bool KeyAvailable { get; }
     void SetCursorPosition(int left, int top);
     void Clear();
