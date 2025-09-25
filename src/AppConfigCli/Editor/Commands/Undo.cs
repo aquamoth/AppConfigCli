@@ -35,9 +35,9 @@ internal sealed record Undo(int Start, int End) : Command
     {
         if (args.Length == 0)
         {
-            Console.WriteLine("Usage: u|undo <n> [m]  (undos rows n..m)");
-            Console.WriteLine("Press Enter to continue...");
-            Console.ReadLine();
+            app.ConsoleEx.WriteLine("Usage: u|undo <n> [m]  (undos rows n..m)");
+            app.ConsoleEx.WriteLine("Press Enter to continue...");
+            app.ConsoleEx.ReadLine();
             return;
         }
 
@@ -53,14 +53,14 @@ internal sealed record Undo(int Start, int End) : Command
 
     internal bool UndoRange(EditorApp app, string[] args)
     {
-        if (!int.TryParse(args[0], out int start)) { Console.WriteLine("First argument must be an index or 'all'."); Console.ReadLine(); return false; }
+        if (!int.TryParse(args[0], out int start)) { app.ConsoleEx.WriteLine("First argument must be an index or 'all'."); app.ConsoleEx.ReadLine(); return false; }
         int end = start;
         if (args.Length >= 2 && int.TryParse(args[1], out int endParsed)) end = endParsed;
         var actualIndices = app.MapVisibleRangeToItemIndices(start, end, out var error);
         if (actualIndices is null)
         {
-            Console.WriteLine(error);
-            Console.ReadLine();
+            app.ConsoleEx.WriteLine(error);
+            app.ConsoleEx.ReadLine();
             return false;
         }
 
@@ -91,9 +91,9 @@ internal sealed record Undo(int Start, int End) : Command
             }
         }
 
-        Console.WriteLine($"Undo selection: removed {removedNew} new item(s), restored {restored} item(s), untouched {untouched}.");
-        Console.WriteLine("Press Enter to continue...");
-        Console.ReadLine();
+        app.ConsoleEx.WriteLine($"Undo selection: removed {removedNew} new item(s), restored {restored} item(s), untouched {untouched}.");
+        app.ConsoleEx.WriteLine("Press Enter to continue...");
+        app.ConsoleEx.ReadLine();
         return true;
     }
 
@@ -126,8 +126,8 @@ internal sealed record Undo(int Start, int End) : Command
             }
         }
 
-        Console.WriteLine($"Undo all: removed {removedNew} new item(s), restored {restored} item(s), untouched {untouched}.");
-        Console.WriteLine("Press Enter to continue...");
-        Console.ReadLine();
+        app.ConsoleEx.WriteLine($"Undo all: removed {removedNew} new item(s), restored {restored} item(s), untouched {untouched}.");
+        app.ConsoleEx.WriteLine("Press Enter to continue...");
+        app.ConsoleEx.ReadLine();
     }
 }

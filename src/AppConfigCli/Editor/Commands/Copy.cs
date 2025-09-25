@@ -28,25 +28,25 @@ internal sealed record Copy(int Start, int End) : Command
     {
         if (app.Label is null)
         {
-            Console.WriteLine("Copy requires an active label filter. Set one with l|label <value> first.");
-            Console.WriteLine("Press Enter to continue...");
-            Console.ReadLine();
+            app.ConsoleEx.WriteLine("Copy requires an active label filter. Set one with l|label <value> first.");
+            app.ConsoleEx.WriteLine("Press Enter to continue...");
+            app.ConsoleEx.ReadLine();
             return;
         }
 
         if (args.Length == 0)
         {
-            Console.WriteLine("Usage: c|copy <n> [m]  (copies rows n..m)");
-            Console.WriteLine("Press Enter to continue...");
-            Console.ReadLine();
+            app.ConsoleEx.WriteLine("Usage: c|copy <n> [m]  (copies rows n..m)");
+            app.ConsoleEx.WriteLine("Press Enter to continue...");
+            app.ConsoleEx.ReadLine();
             return;
         }
 
-        if (!int.TryParse(args[0], out int start)) { Console.WriteLine("First argument must be an index."); Console.ReadLine(); return; }
+        if (!int.TryParse(args[0], out int start)) { app.ConsoleEx.WriteLine("First argument must be an index."); app.ConsoleEx.ReadLine(); return; }
         int end = start;
         if (args.Length >= 2 && int.TryParse(args[1], out int endParsed)) end = endParsed;
         var actualIndices = app.MapVisibleRangeToItemIndices(start, end, out var error);
-        if (actualIndices is null) { Console.WriteLine(error); Console.ReadLine(); return; }
+        if (actualIndices is null) { app.ConsoleEx.WriteLine(error); app.ConsoleEx.ReadLine(); return; }
 
         var selection = new List<(string ShortKey, string Value)>();
         foreach (var idx in actualIndices)
@@ -58,12 +58,12 @@ internal sealed record Copy(int Start, int End) : Command
         }
         if (selection.Count == 0)
         {
-            Console.WriteLine("Nothing to copy in the selected range."); Console.ReadLine(); return;
+            app.ConsoleEx.WriteLine("Nothing to copy in the selected range."); app.ConsoleEx.ReadLine(); return;
         }
 
-        Console.WriteLine("Copy to label (empty for none):");
-        Console.Write("> ");
-        var target = Console.ReadLine();
+        app.ConsoleEx.WriteLine("Copy to label (empty for none):");
+        app.ConsoleEx.Write("> ");
+        var target = app.ConsoleEx.ReadLine();
         string? targetLabel = string.IsNullOrWhiteSpace(target) ? null : target!.Trim();
 
         // Switch to target label and load items for that label
@@ -73,7 +73,10 @@ internal sealed record Copy(int Start, int End) : Command
         int created = 0, updated = 0;
         foreach (var (shortKey, value) in selection)
         {
-            var existing = app.Items.FirstOrDefault(x => x.ShortKey.Equals(shortKey, StringComparison.Ordinal));
+            // Only consider an existing item under the target label, never touch other labels
+            var existing = app.Items.FirstOrDefault(x =>
+                x.ShortKey.Equals(shortKey, StringComparison.Ordinal) &&
+                x.Label == targetLabel);
             if (existing is null)
             {
                 app.Items.Add(new Item

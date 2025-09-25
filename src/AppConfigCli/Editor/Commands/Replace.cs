@@ -43,9 +43,9 @@ internal sealed record Replace() : Command
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"Invalid regex: {ex.Message}");
-            Console.WriteLine("Press Enter to continue...");
-            Console.ReadLine();
+            app.ConsoleEx.WriteLine($"Invalid regex: {ex.Message}");
+            app.ConsoleEx.WriteLine("Press Enter to continue...");
+            app.ConsoleEx.ReadLine();
             return Task.FromResult(new CommandResult());
         }
 
@@ -76,11 +76,11 @@ internal sealed record Replace() : Command
         // 3) Apply over visible, non-deleted items' VALUEs
         var (itemsAffected, totalMatches) = ApplyReplace(app, rx, replacement);
 
-        Console.WriteLine(totalMatches == 0
+        app.ConsoleEx.WriteLine(totalMatches == 0
             ? "No matches found in visible values."
             : $"Replace complete: {totalMatches} match(es) across {itemsAffected} item(s).");
-        Console.WriteLine("Press Enter to continue...");
-        Console.ReadLine();
+        app.ConsoleEx.WriteLine("Press Enter to continue...");
+        app.ConsoleEx.ReadLine();
         return Task.FromResult(new CommandResult());
     }
 

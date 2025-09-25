@@ -25,16 +25,16 @@ internal sealed record Delete(int Start, int End) : Command
 
         if (args.Length == 0)
         {
-            Console.WriteLine("Usage: d|delete <n> [m]  (deletes rows n..m)");
-            Console.WriteLine("Press Enter to continue...");
-            Console.ReadLine();
+            app.ConsoleEx.WriteLine("Usage: d|delete <n> [m]  (deletes rows n..m)");
+            app.ConsoleEx.WriteLine("Press Enter to continue...");
+            app.ConsoleEx.ReadLine();
             return Task.FromResult(new CommandResult());
         }
 
         if (!int.TryParse(args[0], out int start))
         {
-            Console.WriteLine("First argument must be an index.");
-            Console.ReadLine();
+            app.ConsoleEx.WriteLine("First argument must be an index.");
+            app.ConsoleEx.ReadLine();
             return Task.FromResult(new CommandResult());
         }
 
@@ -43,8 +43,8 @@ internal sealed record Delete(int Start, int End) : Command
         var actualIndices = app.MapVisibleRangeToItemIndices(start, end, out var error);
         if (actualIndices is null)
         {
-            Console.WriteLine(error);
-            Console.ReadLine();
+            app.ConsoleEx.WriteLine(error);
+            app.ConsoleEx.ReadLine();
             return Task.FromResult(new CommandResult());
         }
 

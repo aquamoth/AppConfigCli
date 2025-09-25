@@ -60,7 +60,7 @@ internal sealed class DefaultExternalEditor : IExternalEditor
         => path.Contains(' ') ? $"\"{path}\"" : path;
 }
 
-// Console abstraction for safer rendering
+// Console abstraction for safer rendering and input in tests
 internal interface IConsoleEx
 {
     int WindowWidth { get; }
@@ -68,11 +68,17 @@ internal interface IConsoleEx
     int CursorLeft { get; }
     int CursorTop { get; }
     ConsoleColor ForegroundColor { get; set; }
+    ConsoleColor BackgroundColor { get; set; }
+    bool TreatControlCAsInput { get; set; }
+    bool KeyAvailable { get; }
     void SetCursorPosition(int left, int top);
     void Clear();
     void Write(string text);
     void Write(char ch);
     void WriteLine(string text);
+    void WriteLine();
+    ConsoleKeyInfo ReadKey(bool intercept);
+    string? ReadLine();
 }
 
 internal sealed class DefaultConsoleEx : IConsoleEx
@@ -86,6 +92,17 @@ internal sealed class DefaultConsoleEx : IConsoleEx
         get { try { return Console.ForegroundColor; } catch { return ConsoleColor.Gray; } }
         set { try { Console.ForegroundColor = value; } catch { } }
     }
+    public ConsoleColor BackgroundColor
+    {
+        get { try { return Console.BackgroundColor; } catch { return ConsoleColor.Black; } }
+        set { try { Console.BackgroundColor = value; } catch { } }
+    }
+    public bool TreatControlCAsInput
+    {
+        get { try { return Console.TreatControlCAsInput; } catch { return false; } }
+        set { try { Console.TreatControlCAsInput = value; } catch { } }
+    }
+    public bool KeyAvailable { get { try { return Console.KeyAvailable; } catch { return false; } } }
     public void SetCursorPosition(int left, int top) { try { Console.SetCursorPosition(left, top); } catch { } }
     public void Clear() { try { Console.Clear(); } catch { } }
     public void Write(string text) { try { Console.Write(text); } catch { } }
@@ -95,10 +112,12 @@ internal sealed class DefaultConsoleEx : IConsoleEx
         try
         {
             Console.Write(text);
-            //By not writing the line break when cursor already overflows, we avoid extra empty lines when run inside the old conhost (cmd.exe) on Windows.
             if ((Console.CursorLeft != 0))
                 Console.WriteLine();
         }
         catch { }
     }
+    public void WriteLine() { try { Console.WriteLine(); } catch { } }
+    public ConsoleKeyInfo ReadKey(bool intercept) { try { return Console.ReadKey(intercept); } catch { return new ConsoleKeyInfo('\0', 0, false, false, false); } }
+    public string? ReadLine() { try { return Console.ReadLine(); } catch { return null; } }
 }

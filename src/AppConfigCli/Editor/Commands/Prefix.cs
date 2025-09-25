@@ -18,9 +18,9 @@ internal sealed record Prefix(string? Value, bool Prompt) : Command
         string? newPrefix = null;
         if (args.Length == 0)
         {
-            Console.WriteLine("Enter new prefix (empty for all keys):");
+            app.ConsoleEx.WriteLine("Enter new prefix (empty for all keys):");
             var prefixes = await app.GetPrefixCandidatesAsync().ConfigureAwait(false);
-            var typed = ReadLineWithAutocomplete(prefixes, app.Theme);
+            var typed = ReadLineWithAutocomplete(prefixes, app.Theme, app);
             if (typed is null) return new CommandResult(); // ESC cancels
             newPrefix = typed;
         }
@@ -34,11 +34,11 @@ internal sealed record Prefix(string? Value, bool Prompt) : Command
         return new CommandResult();
     }
 
-    private static string? ReadLineWithAutocomplete(IReadOnlyCollection<string> candidates, ConsoleTheme theme)
+    private static string? ReadLineWithAutocomplete(IReadOnlyCollection<string> candidates, ConsoleTheme theme, EditorApp app)
     {
         var buffer = new StringBuilder();
         int startLeft, startTop;
-        try { Console.Write("> "); startLeft = Console.CursorLeft; startTop = Console.CursorTop; }
+        try { app.ConsoleEx.Write("> "); startLeft = app.ConsoleEx.CursorLeft; startTop = app.ConsoleEx.CursorTop; }
         catch { startLeft = 0; startTop = 0; }
 
         int matchIndex = 0;
@@ -68,27 +68,27 @@ internal sealed record Prefix(string? Value, bool Prompt) : Command
             }
             try
             {
-                Console.SetCursorPosition(startLeft, startTop);
+                app.ConsoleEx.SetCursorPosition(startLeft, startTop);
             }
             catch { }
-            Console.Write(typed);
+            app.ConsoleEx.Write(typed);
             int printed = typed.Length;
             if (remainder.Length > 0 && theme.Enabled)
             {
-                var prev = Console.ForegroundColor;
+                var prev = app.ConsoleEx.ForegroundColor;
                 var col = ConsoleColor.DarkGray;
-                if (Console.ForegroundColor != col) Console.ForegroundColor = col;
-                Console.Write(remainder);
-                if (Console.ForegroundColor != prev) Console.ForegroundColor = prev;
+                if (app.ConsoleEx.ForegroundColor != col) app.ConsoleEx.ForegroundColor = col;
+                app.ConsoleEx.Write(remainder);
+                if (app.ConsoleEx.ForegroundColor != prev) app.ConsoleEx.ForegroundColor = prev;
                 printed += remainder.Length;
             }
             // Clear any trailing leftover from previous render
             if (printed < lastPrinted)
             {
-                Console.Write(new string(' ', lastPrinted - printed));
+                app.ConsoleEx.Write(new string(' ', lastPrinted - printed));
             }
             // Place cursor back at end of typed input
-            try { Console.SetCursorPosition(startLeft + typed.Length, startTop); } catch { }
+            try { app.ConsoleEx.SetCursorPosition(startLeft + typed.Length, startTop); } catch { }
             lastPrinted = printed;
         }
 
@@ -96,15 +96,15 @@ internal sealed record Prefix(string? Value, bool Prompt) : Command
         Render();
         while (true)
         {
-            var key = Console.ReadKey(intercept: true);
+            var key = app.ConsoleEx.ReadKey(intercept: true);
             if (key.Key == ConsoleKey.Enter)
             {
-                Console.WriteLine();
+                app.ConsoleEx.WriteLine("");
                 return buffer.ToString();
             }
             if (key.Key == ConsoleKey.Escape || ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.C))
             {
-                Console.WriteLine();
+                app.ConsoleEx.WriteLine("");
                 return null; // cancel
             }
             if (key.Key == ConsoleKey.Tab)

@@ -34,9 +34,9 @@ internal sealed record Grep(string? Pattern, bool Clear) : Command
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Invalid regex: {ex.Message}");
-                Console.WriteLine("Press Enter to continue...");
-                Console.ReadLine();
+                app.ConsoleEx.WriteLine($"Invalid regex: {ex.Message}");
+                app.ConsoleEx.WriteLine("Press Enter to continue...");
+                app.ConsoleEx.ReadLine();
             }
         }
 

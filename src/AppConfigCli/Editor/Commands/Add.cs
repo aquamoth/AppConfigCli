@@ -20,8 +20,8 @@ internal sealed record Add(string? Key, bool Prompt) : Command
         string? k = Key;
         if (Prompt)
         {
-            Console.WriteLine("Enter new key (relative to prefix):");
-            k = ReadLineCancelable();
+            app.ConsoleEx.WriteLine("Enter new key (relative to prefix):");
+            k = ReadLineCancelable(app);
             if (k is null) return Task.FromResult(new CommandResult());
         }
         if (string.IsNullOrWhiteSpace(k)) return Task.FromResult(new CommandResult());
@@ -30,26 +30,26 @@ internal sealed record Add(string? Key, bool Prompt) : Command
         string? chosenLabel = app.Label;
         if (chosenLabel is not null)
         {
-            Console.WriteLine($"Adding new key under label: [{chosenLabel}]");
+            app.ConsoleEx.WriteLine($"Adding new key under label: [{chosenLabel}]");
         }
         else
         {
-            Console.WriteLine("Enter label for new key (empty for none):");
-            var lbl = ReadLineCancelable();
+            app.ConsoleEx.WriteLine("Enter label for new key (empty for none):");
+            var lbl = ReadLineCancelable(app);
             if (lbl is null) return Task.FromResult(new CommandResult());
             chosenLabel = string.IsNullOrWhiteSpace(lbl) ? null : lbl!.Trim();
-            Console.WriteLine($"Using label: [{chosenLabel ?? "(none)"}]");
+            app.ConsoleEx.WriteLine($"Using label: [{chosenLabel ?? "(none)"}]");
         }
 
         if (app.Items.Any(i => i.ShortKey.Equals(k, StringComparison.Ordinal)
                              && string.Equals(i.Label ?? string.Empty, chosenLabel ?? string.Empty, StringComparison.Ordinal)))
         {
-            Console.WriteLine("Key already exists for this label.");
+            app.ConsoleEx.WriteLine("Key already exists for this label.");
             return Task.FromResult(new CommandResult());
         }
 
-        Console.WriteLine("Enter value:");
-        Console.Write("> ");
+        app.ConsoleEx.WriteLine("Enter value:");
+        app.ConsoleEx.Write("> ");
         var vRes = app.ReadLineWithPagingCancelable(
             onRepaint: () => { return (app.ConsoleEx.CursorLeft, app.ConsoleEx.CursorTop); },
             onPageUp: () => { },
@@ -79,28 +79,28 @@ internal sealed record Add(string? Key, bool Prompt) : Command
         return Task.FromResult(new CommandResult());
     }
 
-    private static string? ReadLineCancelable()
+    private static string? ReadLineCancelable(EditorApp app)
     {
         var buffer = new StringBuilder();
         int startLeft = 0, startTop = 0;
-        try { Console.Write("> "); startLeft = Console.CursorLeft; startTop = Console.CursorTop; } catch { }
+        try { app.ConsoleEx.Write("> "); startLeft = app.ConsoleEx.CursorLeft; startTop = app.ConsoleEx.CursorTop; } catch { }
         void Render()
         {
-            try { Console.SetCursorPosition(startLeft, startTop); } catch { }
-            Console.Write(buffer.ToString());
+            try { app.ConsoleEx.SetCursorPosition(startLeft, startTop); } catch { }
+            app.ConsoleEx.Write(buffer.ToString());
         }
         Render();
         while (true)
         {
-            var key = Console.ReadKey(intercept: true);
+            var key = app.ConsoleEx.ReadKey(intercept: true);
             if (key.Key == ConsoleKey.Enter)
             {
-                Console.WriteLine();
+                app.ConsoleEx.WriteLine("");
                 return buffer.ToString();
             }
             if (key.Key == ConsoleKey.Escape || ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.C))
             {
-                Console.WriteLine();
+                app.ConsoleEx.WriteLine("");
                 return null; // cancel
             }
             if (key.Key == ConsoleKey.Backspace)
@@ -108,8 +108,8 @@ internal sealed record Add(string? Key, bool Prompt) : Command
                 if (buffer.Length > 0)
                 {
                     buffer.Remove(buffer.Length - 1, 1);
-                    try { Console.SetCursorPosition(Math.Max(0, startLeft + buffer.Length), startTop); } catch { }
-                    Console.Write(' ');
+                    try { app.ConsoleEx.SetCursorPosition(Math.Max(0, startLeft + buffer.Length), startTop); } catch { }
+                    app.ConsoleEx.Write(' ');
                     Render();
                 }
                 continue;

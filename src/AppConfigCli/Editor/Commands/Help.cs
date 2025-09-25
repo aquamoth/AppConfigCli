@@ -12,9 +12,9 @@ internal sealed record Help() : Command
     };
     public override Task<CommandResult> ExecuteAsync(EditorApp app)
     {
-        Console.Clear();
+        app.ConsoleEx.Clear();
         // Header: App name + version, author, project site, license
-        Console.WriteLine(VersionInfo.GetVersionLine());
+        app.ConsoleEx.WriteLine(VersionInfo.GetVersionLine());
 
         string labelAuthor = "Author:";
         string labelProject = "Project website:";
@@ -24,36 +24,34 @@ internal sealed record Help() : Command
         void WriteHeaderRow(string label, string value, bool isUrl)
         {
             var padded = label.PadRight(labelWidth);
-            Console.Write(padded + " ");
-            if (isUrl) WriteUrl(app, value); else Console.Write(value);
-            Console.WriteLine();
+            app.ConsoleEx.Write(padded + " ");
+            if (isUrl) WriteUrl(app, value); else app.ConsoleEx.Write(value);
+            app.ConsoleEx.WriteLine();
         }
 
         // Author row: name + personal GitHub link
         var paddedAuthor = labelAuthor.PadRight(labelWidth);
-        Console.Write(paddedAuthor + " ");
-        Console.Write("Mattias Åslund ");
+        app.ConsoleEx.Write(paddedAuthor + " ");
+        app.ConsoleEx.Write("Mattias Åslund ");
         WriteUrl(app, "https://github.com/aquamoth");
-        Console.WriteLine();
+        app.ConsoleEx.WriteLine();
         WriteHeaderRow(labelProject, "https://github.com/aquamoth/AppConfigCli", isUrl: true);
         WriteHeaderRow(labelLicense, "https://www.apache.org/licenses/LICENSE-2.0", isUrl: true);
-        Console.WriteLine();
-
-        // Helpers moved to class scope
+        app.ConsoleEx.WriteLine();
 
         // Display group (sorted)
-        Console.WriteLine("Display");
+        app.ConsoleEx.WriteLine("Display");
         var displayAliases = new[] { "prefix", "label", "grep", "reload", "quit", "help", "whoami" };
         var displaySpecs = displayAliases.Select(a => FindSpec(a)).Where(s => s is not null)!.Cast<Command.CommandSpec>()
             .OrderBy(s => LongAlias(s), StringComparer.OrdinalIgnoreCase);
         foreach (var s in displaySpecs)
             WriteCommandLine(s);
-        Console.WriteLine();
+        app.ConsoleEx.WriteLine();
         WriteWrappedRow("PageUp/PageDown key", "Change page when list is longer than screen");
-        Console.WriteLine();
+        app.ConsoleEx.WriteLine();
 
         // Inline editing group (numeric edit first)
-        Console.WriteLine("Inline editing");
+        app.ConsoleEx.WriteLine("Inline editing");
         // Numeric edit hint (no short alias; indent 5 spaces) shown before other items
         WriteWrappedRow("     <n>", "Edit value of item number n");
         var editAliases = new[] { "add", /* "edit" removed: numeric input edits */ "delete", "copy", "replace", "save", "undo" };
@@ -61,31 +59,31 @@ internal sealed record Help() : Command
             .OrderBy(s => LongAlias(s), StringComparer.OrdinalIgnoreCase);
         foreach (var s in editSpecs)
             WriteCommandLine(s);
-        Console.WriteLine();
+        app.ConsoleEx.WriteLine();
         WriteWrappedRow("Up/Down key", "Browse command history at the prompt");
-        Console.WriteLine();
+        app.ConsoleEx.WriteLine();
 
         // External editor group (sorted)
-        Console.WriteLine("Edit in external editor");
+        app.ConsoleEx.WriteLine("Edit in external editor");
         var externalAliases = new[] { "open", "json", "yaml" };
         var externalSpecs = externalAliases.Select(a => FindSpec(a)).Where(s => s is not null)!.Cast<Command.CommandSpec>()
             .OrderBy(s => LongAlias(s), StringComparer.OrdinalIgnoreCase);
         foreach (var s in externalSpecs)
             WriteCommandLine(s);
-        Console.WriteLine();
+        app.ConsoleEx.WriteLine();
 
-        Console.WriteLine("Press Enter to return to the list...");
-        Console.ReadLine();
+        app.ConsoleEx.WriteLine("Press Enter to return to the list...");
+        app.ConsoleEx.ReadLine();
         return Task.FromResult(new CommandResult());
     }
 
     private static void WriteUrl(EditorApp app, string url)
     {
-        var prev = Console.ForegroundColor;
+        var prev = app.ConsoleEx.ForegroundColor;
         if (app.Theme.Enabled && app.Theme.IsDefaultPreset)
-            Console.ForegroundColor = ConsoleColor.Blue;
-        Console.Write(url);
-        if (Console.ForegroundColor != prev) Console.ForegroundColor = prev;
+            app.ConsoleEx.ForegroundColor = ConsoleColor.Blue;
+        app.ConsoleEx.Write(url);
+        if (app.ConsoleEx.ForegroundColor != prev) app.ConsoleEx.ForegroundColor = prev;
     }
 
     private static bool HasShortAlias(Command.CommandSpec s)

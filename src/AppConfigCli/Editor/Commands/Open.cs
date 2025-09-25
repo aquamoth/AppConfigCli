@@ -15,9 +15,9 @@ internal sealed record Open() : Command
         await Task.CompletedTask;
         if (app.Label is null)
         {
-            Console.WriteLine("Open requires an active label filter. Set one with l|label <value> first.");
-            Console.WriteLine("Press Enter to continue...");
-            Console.ReadLine();
+            app.ConsoleEx.WriteLine("Open requires an active label filter. Set one with l|label <value> first.");
+            app.ConsoleEx.WriteLine("Press Enter to continue...");
+            app.ConsoleEx.ReadLine();
             return new CommandResult();
         }
 
@@ -37,9 +37,9 @@ internal sealed record Open() : Command
             }
             catch (Exception ex)
             {
-                Console.WriteLine($"Failed to launch editor: {ex.Message}");
-                Console.WriteLine("Press Enter to continue...");
-                Console.ReadLine();
+                app.ConsoleEx.WriteLine($"Failed to launch editor: {ex.Message}");
+                app.ConsoleEx.WriteLine("Press Enter to continue...");
+                app.ConsoleEx.ReadLine();
                 return new CommandResult();
             }
 

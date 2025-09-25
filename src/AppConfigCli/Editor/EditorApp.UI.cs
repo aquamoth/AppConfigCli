@@ -44,7 +44,8 @@ internal sealed class EditorApp
         Func<Task>? whoAmI = null,
         IFileSystem? fs = null,
         IExternalEditor? externalEditor = null,
-        ConsoleTheme? theme = null)
+        ConsoleTheme? theme = null,
+        IConsoleEx? consoleEx = null)
     {
         _repo = repo;
         Prefix = prefix;
@@ -53,9 +54,10 @@ internal sealed class EditorApp
         Filesystem = fs ?? new DefaultFileSystem();
         ExternalEditor = externalEditor ?? new DefaultExternalEditor();
         Theme = theme ?? ConsoleTheme.Load();
+        ConsoleEx = consoleEx ?? new DefaultConsoleEx();
     }
 
-    internal IConsoleEx ConsoleEx { get; init; } = new DefaultConsoleEx();
+    internal IConsoleEx ConsoleEx { get; init; }
 
     private void Render()
     {
@@ -263,11 +265,11 @@ internal sealed class EditorApp
         try { Render(); } catch { }
     }
 
-    private static int GetWindowHeight()
+    private int GetWindowHeight()
     {
         try
         {
-            var h = Console.WindowHeight;
+            var h = ConsoleEx.WindowHeight;
             return Math.Max(10, h);
         }
         catch
@@ -285,11 +287,11 @@ internal sealed class EditorApp
         pageCount = Math.Max(1, (int)Math.Ceiling(totalItems / (double)pageSize));
     }
 
-    private static int GetWindowWidth()
+    private int GetWindowWidth()
     {
         try
         {
-            var w = Console.WindowWidth;
+            var w = ConsoleEx.WindowWidth;
             // Allow narrow widths; we handle hiding columns below thresholds
             return Math.Max(20, w);
         }
@@ -352,7 +354,7 @@ internal sealed class EditorApp
     {
         int len = Math.Min(text.Length, width);
         var prevFg = ConsoleEx.ForegroundColor;
-        var prevBg = Console.BackgroundColor;
+        var prevBg = ConsoleEx.BackgroundColor;
 
         // Precompute highlight flags for displayed substring
         var flags = new bool[len];
@@ -375,18 +377,18 @@ internal sealed class EditorApp
             bool hl = flags[i];
             if (hl)
             {
-                if (Console.BackgroundColor != ConsoleColor.DarkYellow) Console.BackgroundColor = ConsoleColor.DarkYellow;
+                if (ConsoleEx.BackgroundColor != ConsoleColor.DarkYellow) ConsoleEx.BackgroundColor = ConsoleColor.DarkYellow;
                 if (ConsoleEx.ForegroundColor != ConsoleColor.Black) ConsoleEx.ForegroundColor = ConsoleColor.Black;
             }
             else
             {
-                if (Console.BackgroundColor != prevBg) Console.BackgroundColor = prevBg;
+                if (ConsoleEx.BackgroundColor != prevBg) ConsoleEx.BackgroundColor = prevBg;
                 if (ConsoleEx.ForegroundColor != fg) ConsoleEx.ForegroundColor = fg;
             }
             ConsoleEx.Write(ch);
         }
         // Reset colors and pad if needed
-        if (Console.BackgroundColor != prevBg) Console.BackgroundColor = prevBg;
+        if (ConsoleEx.BackgroundColor != prevBg) ConsoleEx.BackgroundColor = prevBg;
         if (ConsoleEx.ForegroundColor != prevFg) ConsoleEx.ForegroundColor = prevFg;
         if (len < width)
         {
@@ -418,7 +420,7 @@ internal sealed class EditorApp
         string? l = Label is null ? null : $"Label: {(Label.Length == 0 ? "(none)" : Label)}";
         string? f = string.IsNullOrEmpty(KeyRegexPattern) ? null : $"Filter: {KeyRegexPattern}";
         if (p is null && l is null && f is null) return;
-        int startTop; try { startTop = Console.CursorTop; } catch { startTop = 1; }
+        int startTop; try { startTop = ConsoleEx.CursorTop; } catch { startTop = 1; }
         var layout = HeaderLayout.Compute(width, p, l, f);
         void RenderLine(int top, System.Collections.Generic.List<HeaderLayout.Segment> segs)
         {
@@ -455,7 +457,7 @@ internal sealed class EditorApp
     {
         var total = GetVisibleItems().Count;
         int pageSize, pageCount;
-        try { int h = Console.WindowHeight; int w = Console.WindowWidth; ComputePaging(h, total, GetHeaderLineCountForWidth(Math.Max(20, Math.Min(w, 240))), out pageSize, out pageCount); }
+        try { int h = ConsoleEx.WindowHeight; int w = ConsoleEx.WindowWidth; ComputePaging(h, total, GetHeaderLineCountForWidth(Math.Max(20, Math.Min(w, 240))), out pageSize, out pageCount); }
         catch { ComputePaging(40, total, GetHeaderLineCountForWidth(100), out pageSize, out pageCount); }
         if (pageCount <= 1) { _pageIndex = 0; return; }
         _pageIndex = Math.Max(0, _pageIndex - 1);
@@ -465,7 +467,7 @@ internal sealed class EditorApp
     {
         var total = GetVisibleItems().Count;
         int pageSize, pageCount;
-        try { int h = Console.WindowHeight; int w = Console.WindowWidth; ComputePaging(h, total, GetHeaderLineCountForWidth(Math.Max(20, Math.Min(w, 240))), out pageSize, out pageCount); }
+        try { int h = ConsoleEx.WindowHeight; int w = ConsoleEx.WindowWidth; ComputePaging(h, total, GetHeaderLineCountForWidth(Math.Max(20, Math.Min(w, 240))), out pageSize, out pageCount); }
         catch { ComputePaging(40, total, GetHeaderLineCountForWidth(100), out pageSize, out pageCount); }
         if (pageCount <= 1) { _pageIndex = 0; return; }
         _pageIndex = Math.Min(pageCount - 1, _pageIndex + 1);
@@ -496,8 +498,8 @@ internal sealed class EditorApp
 
     public async Task RunAsync()
     {
-        var prevTreatCtrlC = Console.TreatControlCAsInput;
-        Console.TreatControlCAsInput = true;
+        var prevTreatCtrlC = ConsoleEx.TreatControlCAsInput;
+        ConsoleEx.TreatControlCAsInput = true;
         try
         {
             while (true)
@@ -525,9 +527,9 @@ internal sealed class EditorApp
                 {
                     if (!string.IsNullOrEmpty(err))
                     {
-                        Console.WriteLine(err);
-                        Console.WriteLine("Press Enter to continue...");
-                        Console.ReadLine();
+                        ConsoleEx.WriteLine(err);
+                        ConsoleEx.WriteLine("Press Enter to continue...");
+                        ConsoleEx.ReadLine();
                     }
                     continue;
                 }
@@ -546,7 +548,7 @@ internal sealed class EditorApp
         }
         finally
         {
-            Console.TreatControlCAsInput = prevTreatCtrlC;
+            ConsoleEx.TreatControlCAsInput = prevTreatCtrlC;
         }
     }
 
@@ -564,14 +566,14 @@ internal sealed class EditorApp
 
         void Render()
         {
-            int winWidth = Console.WindowWidth;
+            int winWidth = ConsoleEx.WindowWidth;
             int contentWidth = Math.Max(1, winWidth - startLeft - 1);
             engine.EnsureVisible(contentWidth);
             var view = engine.GetView(contentWidth);
             ConsoleEx.SetCursorPosition(startLeft, startTop);
             int vlen = Math.Min(view.Length, contentWidth);
-            if (vlen > 0) Console.Write(view[..vlen]);
-            if (vlen < contentWidth) Console.Write(new string(' ', contentWidth - vlen));
+            if (vlen > 0) ConsoleEx.Write(view[..vlen]);
+            if (vlen < contentWidth) ConsoleEx.Write(new string(' ', contentWidth - vlen));
             int cursorCol = startLeft + Math.Min(engine.Cursor - engine.ScrollStart, contentWidth - 1);
             int safeCol = Math.Min(Math.Max(0, winWidth - 1), Math.Max(0, cursorCol));
             ConsoleEx.SetCursorPosition(safeCol, startTop);
@@ -581,7 +583,7 @@ internal sealed class EditorApp
         while (true)
         {
             ConsoleKeyInfo key;
-            if (Console.KeyAvailable) key = Console.ReadKey(intercept: true); else { try { System.Threading.Thread.Sleep(25); } catch { } continue; }
+            if (ConsoleEx.KeyAvailable) key = ConsoleEx.ReadKey(intercept: true); else { try { System.Threading.Thread.Sleep(25); } catch { } continue; }
 
             if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.C) { ConsoleEx.WriteLine(""); return (true, null); }
             if (key.Key == ConsoleKey.Escape) { ConsoleEx.WriteLine(""); return (true, null); }
@@ -630,8 +632,8 @@ internal sealed class EditorApp
 
         try
         {
-            int avail = Math.Max(0, Console.WindowWidth - startLeft - 1);
-            if (avail < 10) { Console.WriteLine(); startLeft = 0; startTop = Console.CursorTop; }
+            int avail = Math.Max(0, ConsoleEx.WindowWidth - startLeft - 1);
+            if (avail < 10) { ConsoleEx.WriteLine(); startLeft = 0; startTop = ConsoleEx.CursorTop; }
         }
         catch { }
 
@@ -643,13 +645,13 @@ internal sealed class EditorApp
             var view = engine.GetView(content);
             try
             {
-                Console.SetCursorPosition(startLeft, startTop);
+                ConsoleEx.SetCursorPosition(startLeft, startTop);
                 int vlen = Math.Min(view.Length, content);
-                if (vlen > 0) Console.Write(view[..vlen]);
-                if (vlen < content) Console.Write(new string(' ', content - vlen));
+                if (vlen > 0) ConsoleEx.Write(view[..vlen]);
+                if (vlen < content) ConsoleEx.Write(new string(' ', content - vlen));
                 int cursorCol = startLeft + Math.Min(engine.Cursor - engine.ScrollStart, content - 1);
                 int safeCol = Math.Min(Math.Max(0, w - 1), Math.Max(0, cursorCol));
-                Console.SetCursorPosition(safeCol, startTop);
+                ConsoleEx.SetCursorPosition(safeCol, startTop);
             }
             catch { }
         }
@@ -660,7 +662,7 @@ internal sealed class EditorApp
             // Resize repaint
             try
             {
-                int w = Console.WindowWidth, h = Console.WindowHeight;
+                int w = ConsoleEx.WindowWidth, h = ConsoleEx.WindowHeight;
                 if ((w != lastW || h != lastH) && onRepaint is not null)
                 {
                     lastW = w; lastH = h;
@@ -671,7 +673,7 @@ internal sealed class EditorApp
             catch { }
 
             ConsoleKeyInfo key;
-            if (Console.KeyAvailable) key = Console.ReadKey(intercept: true); else { try { System.Threading.Thread.Sleep(50); } catch { } continue; }
+            if (ConsoleEx.KeyAvailable) key = ConsoleEx.ReadKey(intercept: true); else { try { System.Threading.Thread.Sleep(50); } catch { } continue; }
 
             if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.C) { ConsoleEx.WriteLine(""); return (true, null); }
             if (key.Key == ConsoleKey.Enter) { ConsoleEx.WriteLine(""); return (false, engine.Buffer.ToString()); }
@@ -756,7 +758,7 @@ internal sealed class EditorApp
 
     internal async Task SaveAsync(bool pause = true)
     {
-        Console.WriteLine("Saving changes...");
+        ConsoleEx.WriteLine("Saving changes...");
         int changes = 0;
 
         // Compute consolidated change set using Core.ChangeApplier
@@ -783,7 +785,7 @@ internal sealed class EditorApp
             }
             catch (RequestFailedException ex)
             {
-                Console.WriteLine($"Failed to set '{up.Key}': {ex.Message}");
+                ConsoleEx.WriteLine($"Failed to set '{up.Key}': {ex.Message}");
             }
         }
 
@@ -806,15 +808,15 @@ internal sealed class EditorApp
             }
             catch (RequestFailedException ex)
             {
-                Console.WriteLine($"Failed to delete '{del.Key}': {ex.Message}");
+                ConsoleEx.WriteLine($"Failed to delete '{del.Key}': {ex.Message}");
             }
         }
 
-        Console.WriteLine(changes == 0 ? "No changes to save." : $"Saved {changes} change(s).");
+        ConsoleEx.WriteLine(changes == 0 ? "No changes to save." : $"Saved {changes} change(s).");
         if (pause)
         {
-            Console.WriteLine("Press Enter to continue...");
-            Console.ReadLine();
+            ConsoleEx.WriteLine("Press Enter to continue...");
+            ConsoleEx.ReadLine();
         }
     }
 
