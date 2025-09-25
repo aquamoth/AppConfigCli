@@ -36,7 +36,7 @@ internal static class CommandParser
         // Numeric command -> Edit that index
         if (int.TryParse(trimmed, NumberStyles.Integer, CultureInfo.InvariantCulture, out var numericIndex))
         {
-            command = new Command.Edit(numericIndex);
+            command = new Editor.Commands.Edit(numericIndex);
             return true;
         }
 
@@ -44,7 +44,7 @@ internal static class CommandParser
         if (trimmed.StartsWith("/", StringComparison.Ordinal))
         {
             var pattern = trimmed.Length > 1 ? trimmed[1..].TrimStart() : null;
-            command = new Command.Grep(pattern, Clear: string.IsNullOrWhiteSpace(pattern));
+            command = new Editor.Commands.Grep(pattern, Clear: string.IsNullOrWhiteSpace(pattern));
             return true;
         }
 

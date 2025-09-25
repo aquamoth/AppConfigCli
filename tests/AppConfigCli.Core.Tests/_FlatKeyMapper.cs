@@ -3,10 +3,10 @@ using AppConfigCli.Core;
 using FluentAssertions;
 using Xunit;
 
-public class FlatKeyMapperTests
+public class _FlatKeyMapper
 {
     [Fact]
-    public void BuildTree_creates_objects_arrays_and_values()
+    public void build_tree_creates_objects_arrays_and_values()
     {
         var flats = new Dictionary<string, string>
         {
@@ -39,7 +39,7 @@ public class FlatKeyMapperTests
     }
 
     [Fact]
-    public void Flatten_roundtrips_back_to_flats()
+    public void flatten_roundtrips_back_to_flats()
     {
         var flats = new Dictionary<string, string>
         {
@@ -55,4 +55,3 @@ public class FlatKeyMapperTests
         roundtrip.Should().BeEquivalentTo(flats);
     }
 }
-

@@ -4,7 +4,7 @@ using AppConfigCli.Core.UI;
 using FluentAssertions;
 using Xunit;
 
-public class TableLayoutTests
+public class _TableLayout
 {
     private static List<Item> ItemsWithLabels()
     {
@@ -17,7 +17,7 @@ public class TableLayoutTests
     }
 
     [Fact]
-    public void Compute_without_value_allocates_key_and_label()
+    public void compute_without_value_allocates_key_and_label()
     {
         var items = ItemsWithLabels();
         TableLayout.Compute(totalWidth: 50, includeValue: false, items,
@@ -30,7 +30,7 @@ public class TableLayoutTests
     }
 
     [Fact]
-    public void Compute_with_value_reserves_min_value_space()
+    public void compute_with_value_reserves_min_value_space()
     {
         var items = ItemsWithLabels();
         TableLayout.Compute(totalWidth: 80, includeValue: true, items,
@@ -43,7 +43,7 @@ public class TableLayoutTests
     }
 
     [Fact]
-    public void Compute_with_value_at_threshold_maintains_minimums()
+    public void compute_with_value_at_threshold_maintains_minimums()
     {
         var items = ItemsWithLabels();
         TableLayout.Compute(totalWidth: 60, includeValue: true, items,
@@ -55,7 +55,7 @@ public class TableLayoutTests
     }
 
     [Fact]
-    public void Compute_with_value_accounts_for_four_digit_index_width()
+    public void compute_with_value_accounts_for_four_digit_index_width()
     {
         // Simulate 1000 visible items to force a 4-digit index column
         var items = new List<Item>();
@@ -76,7 +76,7 @@ public class TableLayoutTests
     }
 
     [Fact]
-    public void Compute_without_value_accounts_for_four_digit_index_width()
+    public void compute_without_value_accounts_for_four_digit_index_width()
     {
         var items = new List<Item>();
         for (int i = 0; i < 1000; i++)

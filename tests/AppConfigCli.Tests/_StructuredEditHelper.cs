@@ -4,7 +4,7 @@ using AppConfigCli;
 using FluentAssertions;
 using Xunit;
 
-public class StructuredEditHelperTests
+public class _StructuredEditHelper
 {
     private static List<Item> SeedDev()
     {
@@ -16,7 +16,7 @@ public class StructuredEditHelperTests
     }
 
     [Fact]
-    public void ApplyJson_invalid_top_level_returns_error()
+    public void apply_json_invalid_top_level_returns_error()
     {
         var items = SeedDev();
         var visible = items.Where(i => i.Label == "dev");
@@ -29,7 +29,7 @@ public class StructuredEditHelperTests
     }
 
     [Fact]
-    public void ApplyJson_creates_updates_and_deletes()
+    public void apply_json_creates_updates_and_deletes()
     {
         var items = SeedDev();
         var visible = items.Where(i => i.Label == "dev");
@@ -46,7 +46,7 @@ public class StructuredEditHelperTests
     }
 
     [Fact]
-    public void ApplyYaml_invalid_malformed_returns_error()
+    public void apply_yaml_invalid_malformed_returns_error()
     {
         var items = SeedDev();
         var visible = items.Where(i => i.Label == "dev");
@@ -59,7 +59,7 @@ public class StructuredEditHelperTests
     }
 
     [Fact]
-    public void ApplyYaml_creates_updates_and_deletes()
+    public void apply_yaml_creates_updates_and_deletes()
     {
         var items = SeedDev();
         var visible = items.Where(i => i.Label == "dev");
@@ -75,4 +75,3 @@ public class StructuredEditHelperTests
         items.Single(i => i.FullKey == "p:Title" && i.Label == "dev").State.Should().Be(ItemState.Deleted);
     }
 }
-

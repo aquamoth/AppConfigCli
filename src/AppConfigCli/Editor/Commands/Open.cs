@@ -1,64 +1,61 @@
-namespace AppConfigCli;
+namespace AppConfigCli.Editor.Commands;
 
-internal partial record Command
+internal sealed record Open() : Command
 {
-    public sealed record Open() : Command
+    public static CommandSpec Spec => new CommandSpec
     {
-        public static CommandSpec Spec => new CommandSpec
+        Aliases = new[] { "o", "open" },
+        Summary = "o|open",
+        Usage = "Usage: o|open",
+        Description = "Edit all visible items in external editor",
+        Parser = args => (true, new Open(), null)
+    };
+    public override async Task<CommandResult> ExecuteAsync(EditorApp app)
+    {
+        await Task.CompletedTask;
+        if (app.Label is null)
         {
-            Aliases = new[] { "o", "open" },
-            Summary = "o|open",
-            Usage = "Usage: o|open",
-            Description = "Edit all visible items in external editor",
-            Parser = args => (true, new Open(), null)
-        };
-        public override async Task<CommandResult> ExecuteAsync(EditorApp app)
+            app.ConsoleEx.WriteLine("Open requires an active label filter. Set one with l|label <value> first.");
+            app.ConsoleEx.WriteLine("Press Enter to continue...");
+            app.ConsoleEx.ReadLine();
+            return new CommandResult();
+        }
+
+        // Prepare temp file
+        string tmpDir = app.Filesystem.GetTempPath();
+        string file = app.Filesystem.Combine(tmpDir, $"appconfig-{Guid.NewGuid():N}.txt");
+
+        try
         {
-            await Task.CompletedTask;
-            if (app.Label is null)
-            {
-                Console.WriteLine("Open requires an active label filter. Set one with l|label <value> first.");
-                Console.WriteLine("Press Enter to continue...");
-                Console.ReadLine();
-                return new CommandResult();
-            }
+            var content = BulkEditHelper.BuildInitialFileContent(app.GetVisibleItems().Where(i => i.State != ItemState.Deleted), app.Prefix, app.Label);
+            app.Filesystem.WriteAllText(file, content);
 
-            // Prepare temp file
-            string tmpDir = app.Filesystem.GetTempPath();
-            string file = app.Filesystem.Combine(tmpDir, $"appconfig-{Guid.NewGuid():N}.txt");
-
+            // Launch editor
             try
             {
-                var content = BulkEditHelper.BuildInitialFileContent(app.GetVisibleItems().Where(i => i.State != ItemState.Deleted), app.Prefix, app.Label);
-                app.Filesystem.WriteAllText(file, content);
-
-                // Launch editor
-                try
-                {
-                    app.ExternalEditor.Open(file);
-                }
-                catch (Exception ex)
-                {
-                    Console.WriteLine($"Failed to launch editor: {ex.Message}");
-                    Console.WriteLine("Press Enter to continue...");
-                    Console.ReadLine();
-                    return new CommandResult();
-                }
-
-                // Read back and reconcile
-                var lines = app.Filesystem.ReadAllLines(file);
-                var fileText = string.Join("\n", lines);
-                var visibleUnderLabel = app.GetVisibleItems();
-                var (created, updated, deleted) = BulkEditHelper.ApplyEdits(fileText, app.Items, visibleUnderLabel, app.Prefix, app.Label);
-                app.ConsolidateDuplicates();
-                app.Items.Sort(EditorApp.CompareItems);
-                // No summary/pause on success per UX request
+                app.ExternalEditor.Open(file);
+            }
+            catch (Exception ex)
+            {
+                app.ConsoleEx.WriteLine($"Failed to launch editor: {ex.Message}");
+                app.ConsoleEx.WriteLine("Press Enter to continue...");
+                app.ConsoleEx.ReadLine();
                 return new CommandResult();
             }
-            finally
-            {
-                app.Filesystem.Delete(file);
-            }
+
+            // Read back and reconcile
+            var lines = app.Filesystem.ReadAllLines(file);
+            var fileText = string.Join("\n", lines);
+            var visibleUnderLabel = app.GetVisibleItems();
+            var (created, updated, deleted) = BulkEditHelper.ApplyEdits(fileText, app.Items, visibleUnderLabel, app.Prefix, app.Label);
+            app.ConsolidateDuplicates();
+            app.Items.Sort(EditorApp.CompareItems);
+            // No summary/pause on success per UX request
+            return new CommandResult();
+        }
+        finally
+        {
+            app.Filesystem.Delete(file);
         }
     }
 }

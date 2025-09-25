@@ -4,10 +4,10 @@ using AppConfigCli.Core;
 using FluentAssertions;
 using Xunit;
 
-public class ChangeApplierTests
+public class _ChangeApplier
 {
     [Fact]
-    public void Unchanged_items_produce_no_changes()
+    public void unchanged_items_produce_no_changes()
     {
         var items = new List<Item>
         {
@@ -19,7 +19,7 @@ public class ChangeApplierTests
     }
 
     [Fact]
-    public void New_and_Modified_become_upserts()
+    public void new_and_modified_become_upserts()
     {
         var items = new List<Item>
         {
@@ -37,7 +37,7 @@ public class ChangeApplierTests
     }
 
     [Fact]
-    public void Deleted_becomes_delete_with_label_mapping()
+    public void deleted_becomes_delete_with_label_mapping()
     {
         var items = new List<Item>
         {
@@ -52,7 +52,7 @@ public class ChangeApplierTests
     }
 
     [Fact]
-    public void Duplicate_delete_and_modify_results_in_single_upsert()
+    public void duplicate_delete_and_modify_results_in_single_upsert()
     {
         var items = new List<Item>
         {
@@ -66,7 +66,7 @@ public class ChangeApplierTests
     }
 
     [Fact]
-    public void Last_new_wins_among_duplicates()
+    public void last_new_wins_among_duplicates()
     {
         var items = new List<Item>
         {
@@ -79,4 +79,3 @@ public class ChangeApplierTests
         changes.Deletes.Should().BeEmpty();
     }
 }
-

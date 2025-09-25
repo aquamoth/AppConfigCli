@@ -1,5 +1,4 @@
 using Riok.Mapperly.Abstractions;
-using AppConfigCli.Core;
 
 namespace AppConfigCli;
 

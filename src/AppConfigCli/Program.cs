@@ -4,15 +4,7 @@ using System.Text;
 using Azure.Identity;
 using Azure.Core;
 using System.Text.Json;
-using System.Text.RegularExpressions;
-using System.Collections;
-using YamlDotNet.Serialization;
-using YamlDotNet.Serialization.NamingConventions;
-using AppConfigCli.Core;
-using AppConfigCli.Core.UI;
-using CoreItem = AppConfigCli.Core.Item;
-using CoreItemState = AppConfigCli.Core.ItemState;
-using CoreConfigEntry = AppConfigCli.Core.ConfigEntry;
+using AppConfigCli.Editor.Abstractions;
 
 namespace AppConfigCli;
 
@@ -20,17 +12,17 @@ internal class Program
 {
     private static async Task<int> Main(string[] args)
     {
-        Console.OutputEncoding = Encoding.UTF8;
+        var console = new DefaultConsoleEx();
 
         var options = ParseArgs(args);
         if (options.ShowVersion)
         {
-            Console.WriteLine(VersionInfo.GetVersionLine());
+            console.WriteLine(VersionInfo.GetVersionLine());
             return 0;
         }
         if (options.ShowHelp)
         {
-            PrintHelp();
+            PrintHelp(console);
             return 0;
         }
 
@@ -39,14 +31,12 @@ internal class Program
         var connStr = Environment.GetEnvironmentVariable("APP_CONFIG_CONNECTION_STRING");
         ConfigurationClient client;
         Func<Task>? whoAmIAction = null;
-        string authModeDesc;
         if (!string.IsNullOrWhiteSpace(connStr))
         {
             client = new ConfigurationClient(connStr);
-            authModeDesc = "connection-string";
             whoAmIAction = () =>
             {
-                Console.WriteLine("Auth: connection string");
+                console.WriteLine("Auth: connection string");
                 return Task.CompletedTask;
             };
         }
@@ -54,21 +44,21 @@ internal class Program
         {
             // Fallback to AAD auth via endpoint + interactive/device/browser auth
             var tenantId = options.TenantId ?? Environment.GetEnvironmentVariable("AZURE_TENANT_ID");
-            var credential = BuildCredential(tenantId, options.Auth);
+            var credential = await BuildCredentialAsync(tenantId, options.Auth, console);
 
             var endpoint = options.Endpoint ?? Environment.GetEnvironmentVariable("APP_CONFIG_ENDPOINT");
             if (string.IsNullOrWhiteSpace(endpoint))
             {
-                Console.WriteLine("No endpoint provided. Discovering App Configuration stores via Azure…");
-                endpoint = await TrySelectEndpointAsync(credential);
+                console.WriteLine("No endpoint provided. Discovering App Configuration stores via Azure…");
+                endpoint = await TrySelectEndpointAsync(credential, console);
                 if (string.IsNullOrWhiteSpace(endpoint))
                 {
-                    Console.WriteLine("Could not list stores or none found. Enter endpoint manually (e.g., https://<name>.azconfig.io):");
-                    Console.Write("> ");
-                    endpoint = Console.ReadLine();
+                    console.WriteLine("Could not list stores or none found. Enter endpoint manually (e.g., https://<name>.azconfig.io):");
+                    console.Write("> ");
+                    endpoint = console.ReadLine();
                     if (string.IsNullOrWhiteSpace(endpoint))
                     {
-                        Console.Error.WriteLine("No endpoint provided. Exiting.");
+                        console.ErrorWriteLine("No endpoint provided. Exiting.");
                         return 2;
                     }
                 }
@@ -77,168 +67,45 @@ internal class Program
             var uri = NormalizeEndpoint(endpoint!);
             client = new ConfigurationClient(uri, credential);
             var authLabel = string.IsNullOrWhiteSpace(options.Auth) ? "auto" : options.Auth;
-            authModeDesc = $"aad ({(tenantId ?? "default tenant")}, auth={authLabel})";
-            whoAmIAction = async () => await WhoAmIAsync(credential, uri);
+            whoAmIAction = async () => await WhoAmIAsync(credential, uri, console);
         }
 
         var repo = new AzureAppConfigRepository(client);
         // If no theme is specified, force the built-in 'default' preset
         var theme = ConsoleTheme.Load(options.Theme ?? "default", options.NoColor);
-        var app = new EditorApp(repo, options.Prefix, options.Label, whoAmIAction, authModeDesc, theme: theme);
+        var app = new EditorApp(
+            repo, 
+            options.Prefix, 
+            options.Label, 
+            whoAmIAction,
+            new DefaultFileSystem(),
+            new DefaultExternalEditor(),
+            theme, 
+            console);
+
         try
         {
-            // Helpers to construct nested structure with objects/arrays
-            void AddPathDict(Dictionary<string, object> node, string[] segments, string value)
-            {
-                if (segments.Length == 0)
-                {
-                    node["__value"] = value;
-                    return;
-                }
-                var head = segments[0];
-                if (!node.TryGetValue(head, out var child))
-                {
-                    if (segments.Length == 1)
-                    {
-                        node[head] = value;
-                        return;
-                    }
-                    bool nextIsIndex = int.TryParse(segments[1], out _);
-                    if (nextIsIndex)
-                    {
-                        var list = new List<object?>();
-                        node[head] = list;
-                        AddPathList(list, segments[1..], value);
-                    }
-                    else
-                    {
-                        var dict = new Dictionary<string, object>(StringComparer.Ordinal);
-                        node[head] = dict;
-                        AddPathDict(dict, segments[1..], value);
-                    }
-                }
-                else if (child is string s)
-                {
-                    bool nextIsIndex = segments.Length > 1 && int.TryParse(segments[1], out _);
-                    if (nextIsIndex)
-                    {
-                        var list = new List<object?>();
-                        node[head] = list;
-                        AddPathList(list, segments[1..], value);
-                    }
-                    else
-                    {
-                        var dict = new Dictionary<string, object>(StringComparer.Ordinal) { ["__value"] = s };
-                        node[head] = dict;
-                        AddPathDict(dict, segments[1..], value);
-                    }
-                }
-                else if (child is Dictionary<string, object> dict)
-                {
-                    if (segments.Length == 1)
-                    {
-                        dict["__value"] = value;
-                    }
-                    else
-                    {
-                        AddPathDict(dict, segments[1..], value);
-                    }
-                }
-                else if (child is List<object?> list)
-                {
-                    AddPathList(list, segments[1..], value);
-                }
-            }
-
-            void AddPathList(List<object?> list, string[] segments, string value)
-            {
-                if (segments.Length == 0) return; // nothing to set
-                var idxStr = segments[0];
-                if (!int.TryParse(idxStr, out int idx))
-                {
-                    // Treat non-numeric as object under the array element
-                    EnsureListSize(list, 1);
-                    var head = 0; // fallback index
-                    if (list[head] is not Dictionary<string, object> d)
-                    {
-                        d = new Dictionary<string, object>(StringComparer.Ordinal);
-                        list[head] = d;
-                    }
-                    AddPathDict(d, segments, value);
-                    return;
-                }
-                EnsureListSize(list, idx + 1);
-                var child = list[idx];
-                if (segments.Length == 1)
-                {
-                    list[idx] = value;
-                    return;
-                }
-                bool nextIsIndex = int.TryParse(segments[1], out _);
-                if (child is null)
-                {
-                    if (nextIsIndex)
-                    {
-                        var inner = new List<object?>();
-                        list[idx] = inner;
-                        AddPathList(inner, segments[1..], value);
-                    }
-                    else
-                    {
-                        var d = new Dictionary<string, object>(StringComparer.Ordinal);
-                        list[idx] = d;
-                        AddPathDict(d, segments[1..], value);
-                    }
-                }
-                else if (child is string s)
-                {
-                    if (nextIsIndex)
-                    {
-                        var inner = new List<object?>();
-                        list[idx] = inner;
-                        AddPathList(inner, segments[1..], value);
-                    }
-                    else
-                    {
-                        var d = new Dictionary<string, object>(StringComparer.Ordinal) { ["__value"] = s };
-                        list[idx] = d;
-                        AddPathDict(d, segments[1..], value);
-                    }
-                }
-                else if (child is Dictionary<string, object> d)
-                {
-                    AddPathDict(d, segments[1..], value);
-                }
-                else if (child is List<object?> l)
-                {
-                    AddPathList(l, segments[1..], value);
-                }
-            }
-
-            void EnsureListSize(List<object?> list, int size)
-            {
-                while (list.Count < size) list.Add(null);
-            }
+            // (obsolete nested tree helpers removed; structured editors use Core.FlatKeyMapper)
             await app.LoadAsync();
             await app.RunAsync();
             return 0;
         }
         catch (RequestFailedException rfe) when (rfe.Status == 403)
         {
-            Console.Error.WriteLine("Forbidden (403): The signed-in identity lacks App Configuration data access.");
-            Console.Error.WriteLine("Grant App Configuration Data Reader (read) or Data Owner (read/write) on the target App Configuration resource.");
-            Console.Error.WriteLine("Alternatively, use a connection string in APP_CONFIG_CONNECTION_STRING.");
-            Console.Error.WriteLine("Tip: If you were silently authenticated via Azure CLI, try signing in interactively with a different account by logging out of Azure CLI or using the device code prompt.");
+            console.ErrorWriteLine("Forbidden (403): The signed-in identity lacks App Configuration data access.");
+            console.ErrorWriteLine("Grant App Configuration Data Reader (read) or Data Owner (read/write) on the target App Configuration resource.");
+            console.ErrorWriteLine("Alternatively, use a connection string in APP_CONFIG_CONNECTION_STRING.");
+            console.ErrorWriteLine("Tip: If you were silently authenticated via Azure CLI, try signing in interactively with a different account by logging out of Azure CLI or using the device code prompt.");
             return 1;
         }
         catch (Exception ex)
         {
-            Console.Error.WriteLine($"Error: {ex.Message}");
+            console.ErrorWriteLine($"Error: {ex.Message}");
             return 1;
         }
     }
 
-    private static TokenCredential BuildCredential(string? tenantId, string? authMode)
+    private static async Task<TokenCredential> BuildCredentialAsync(string? tenantId, string? authMode, IConsoleEx console)
     {
         var browser = new InteractiveBrowserCredential(new InteractiveBrowserCredentialOptions
         {
@@ -256,12 +123,12 @@ internal class Program
             ClientId = "04b07795-8ddb-461a-bbee-02f9e1bf7b46",
             DeviceCodeCallback = (code, ct) =>
             {
-                Console.WriteLine();
-                Console.WriteLine("To sign in, open the browser to:");
-                Console.WriteLine(code.VerificationUri);
-                Console.WriteLine("and enter the code:");
-                Console.WriteLine(code.UserCode);
-                Console.WriteLine();
+                console.WriteLine();
+                console.WriteLine("To sign in, open the browser to:");
+                console.WriteLine(code.VerificationUri.ToString());
+                console.WriteLine("and enter the code:");
+                console.WriteLine(code.UserCode);
+                console.WriteLine();
                 return Task.CompletedTask;
             }
         });
@@ -275,16 +142,53 @@ internal class Program
             case null:
             case "auto":
             default:
-                bool isWsl = IsWsl();
-                bool hasDisplay = !string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY"));
-                if (isWsl || (!OperatingSystem.IsWindows() && !hasDisplay))
+                var plan = await SelectAutoAuthPlanAsync(cli);
+                return plan switch
                 {
-                    return new ChainedTokenCredential(device, browser, cli, vsc);
-                }
-                else
-                {
-                    return new ChainedTokenCredential(browser, device, cli, vsc);
-                }
+                    AutoAuthPlan.Cli => cli,
+                    AutoAuthPlan.DeviceOnly => device,
+                    _ => new ChainedTokenCredential(browser, device)
+                };
+        }
+    }
+
+    // Determines the auto-auth plan: prefer CLI if logged in; otherwise browser (non-WSL/headless) with device fallback; device-only on WSL/headless
+    internal enum AutoAuthPlan { Cli, BrowserThenDevice, DeviceOnly }
+
+    internal static async Task<AutoAuthPlan> SelectAutoAuthPlanAsync(AzureCliCredential cli)
+    {
+        // Try CLI silently first
+        if (await IsCliLoggedInAsync(cli))
+            return AutoAuthPlan.Cli;
+
+        bool isWsl = IsWsl();
+        bool headlessLinux = OperatingSystem.IsLinux() && string.IsNullOrEmpty(Environment.GetEnvironmentVariable("DISPLAY"));
+        if (isWsl || headlessLinux)
+            return AutoAuthPlan.DeviceOnly;
+
+        return AutoAuthPlan.BrowserThenDevice;
+    }
+
+    internal static AutoAuthPlan SelectAutoAuthPlanForTests(bool cliLoggedIn, bool isWsl, bool hasDisplay)
+    {
+        if (cliLoggedIn) return AutoAuthPlan.Cli;
+        bool headlessLinux = !OperatingSystem.IsWindows() && !OperatingSystem.IsMacOS() && !hasDisplay; // tests provide hasDisplay
+        if (isWsl || headlessLinux) return AutoAuthPlan.DeviceOnly;
+        return AutoAuthPlan.BrowserThenDevice;
+    }
+
+    private static async Task<bool> IsCliLoggedInAsync(AzureCliCredential cli)
+    {
+        try
+        {
+            // Probe with azconfig scope; CLI does not prompt
+            var ctx = new TokenRequestContext(new[] { "https://azconfig.io/.default" });
+            await cli.GetTokenAsync(ctx, default);
+            return true;
+        }
+        catch
+        {
+            return false;
         }
     }
 
@@ -312,7 +216,7 @@ internal class Program
         return false;
     }
 
-    private static async Task WhoAmIAsync(TokenCredential credential, Uri endpoint)
+    private static async Task WhoAmIAsync(TokenCredential credential, Uri endpoint, IConsoleEx console)
     {
         try
         {
@@ -320,20 +224,20 @@ internal class Program
             var token = await credential.GetTokenAsync(ctx, default);
             var payload = DecodeJwtPayload(token.Token);
             string GetStr(string name) => payload.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
-            Console.WriteLine("Auth: Azure AD token");
-            Console.WriteLine($"Endpoint: {endpoint}");
-            Console.WriteLine($"TenantId (tid): {GetStr("tid")}");
-            Console.WriteLine($"ObjectId (oid): {GetStr("oid")}");
-            Console.WriteLine($"User/UPN: {GetStr("preferred_username")}");
-            Console.WriteLine($"AppId (appid): {GetStr("appid")}");
+            console.WriteLine("Auth: Azure AD token");
+            console.WriteLine($"Endpoint: {endpoint}");
+            console.WriteLine($"TenantId (tid): {GetStr("tid")}");
+            console.WriteLine($"ObjectId (oid): {GetStr("oid")}");
+            console.WriteLine($"User/UPN: {GetStr("preferred_username")}");
+            console.WriteLine($"AppId (appid): {GetStr("appid")}");
         }
         catch (Exception ex)
         {
-            Console.WriteLine($"whoami failed: {ex.Message}");
+            console.WriteLine($"whoami failed: {ex.Message}");
         }
     }
 
-    private static async Task<string?> TrySelectEndpointAsync(TokenCredential credential)
+    private static async Task<string?> TrySelectEndpointAsync(TokenCredential credential, IConsoleEx console)
     {
         try
         {
@@ -394,15 +298,15 @@ internal class Program
 
             if (stores.Count == 0) return null;
 
-            Console.WriteLine();
-            Console.WriteLine("Select App Configuration store:");
+            console.WriteLine();
+            console.WriteLine("Select App Configuration store:");
             for (int i = 0; i < stores.Count; i++)
             {
                 var s = stores[i];
-                Console.WriteLine($"  {i + 1}. {s.Name}  rg:{s.ResourceGroup}  loc:{s.Location}  {s.Endpoint}");
+                console.WriteLine($"  {i + 1}. {s.Name}  rg:{s.ResourceGroup}  loc:{s.Location}  {s.Endpoint}");
             }
-            Console.Write("Choice [1-" + stores.Count + "]: ");
-            var sel = Console.ReadLine();
+            console.Write("Choice [1-" + stores.Count + "]: ");
+            var sel = console.ReadLine();
             if (int.TryParse(sel, out var idx) && idx >= 1 && idx <= stores.Count)
             {
                 return stores[idx - 1].Endpoint;
@@ -453,42 +357,27 @@ internal class Program
         return JsonDocument.Parse(doc.RootElement.GetRawText()).RootElement;
     }
 
-    private static void PrintHelp()
+    private static void PrintHelp(IConsoleEx console)
     {
-        Console.WriteLine("Azure App Configuration Section Editor");
-        Console.WriteLine();
-        Console.WriteLine("Usage: appconfig [--prefix <keyPrefix>] [--label <label>] [--endpoint <url>] [--tenant <guid>] [--auth <mode>] [--theme <name>] [--no-color] [--version]");
-        Console.WriteLine();
-        Console.WriteLine("Options:");
-        Console.WriteLine("  --prefix <value>    Optional. Key prefix (section) to load initially");
-        Console.WriteLine("  --label <value>     Optional. Label filter");
-        Console.WriteLine("  --endpoint <url>    Optional. App Configuration endpoint for AAD auth");
-        Console.WriteLine("  --tenant <guid>     Optional. Entra ID tenant for AAD auth");
-        Console.WriteLine("  --auth <mode>       Optional. Auth method: auto|device|browser|cli|vscode (default: auto)");
-        Console.WriteLine("  --theme <name>      Optional. Theme preset: default|mono|no-color|solarized");
-        Console.WriteLine("  --no-color          Optional. Disable color output (overrides theme)");
-        Console.WriteLine("  --version           Print version and exit");
-        Console.WriteLine();
-        Console.WriteLine("Environment:");
-        Console.WriteLine("  APP_CONFIG_CONNECTION_STRING  Azure App Configuration connection string");
-        Console.WriteLine("  APP_CONFIG_ENDPOINT           App Configuration endpoint (AAD auth)");
-        Console.WriteLine("  AZURE_TENANT_ID               Entra ID tenant to authenticate against (AAD)");
-        Console.WriteLine();
-        Console.WriteLine("Commands inside editor:");
-        Console.WriteLine("  a|add           Add new key under prefix");
-        Console.WriteLine("  p|prefix [val]  Change prefix (no arg prompts)");
-        Console.WriteLine("  c|copy <n> [m]  Copy rows n..m to another label and switch");
-        Console.WriteLine("  d|delete <n> [m]  Delete items n..m");
-        Console.WriteLine("  e|edit <n>      Edit item n");
-        Console.WriteLine("  h|help          Help");
-        Console.WriteLine("  l|label [value] Change label filter (no arg clears; '-' = empty label)");
-        Console.WriteLine("  o|open          Edit all visible items in external editor");
-        Console.WriteLine("  replace         Regex search+replace across visible VALUES");
-        Console.WriteLine("  q|quit          Quit");
-        Console.WriteLine("  r|reload        Reload from Azure and reconcile local changes");
-        Console.WriteLine("  s|save          Save all changes");
-        Console.WriteLine("  u|undo <n> [m]|all  Undo selection or all pending changes");
-        Console.WriteLine();
+        console.WriteLine("Azure App Configuration Section Editor");
+        console.WriteLine();
+        console.WriteLine("Usage: AppConfigCli [options]");
+        console.WriteLine();
+        console.WriteLine("Options:");
+        console.WriteLine("  --prefix <value>              Optional. Key prefix (section) to load initially");
+        console.WriteLine("  --label <value>               Optional. Label filter");
+        console.WriteLine("  --endpoint <url>              Optional. App Configuration endpoint for AAD auth");
+        console.WriteLine("  --tenant <guid>               Optional. Entra ID tenant for AAD auth");
+        console.WriteLine("  --auth <mode>                 Optional. Auth method: auto|device|browser|cli|vscode (default: auto)");
+        console.WriteLine("  --theme <name>                Optional. Theme preset: default|mono|no-color|solarized");
+        console.WriteLine("  --no-color                    Optional. Disable color output (overrides theme)");
+        console.WriteLine("  --version                     Print version and exit");
+        console.WriteLine();
+        console.WriteLine("Environment:");
+        console.WriteLine("  APP_CONFIG_CONNECTION_STRING  Azure App Configuration connection string");
+        console.WriteLine("  APP_CONFIG_ENDPOINT           App Configuration endpoint (AAD auth)");
+        console.WriteLine("  AZURE_TENANT_ID               Entra ID tenant to authenticate against (AAD)");
+        console.WriteLine();
     }
 
     private static Options ParseArgs(string[] args)
@@ -542,971 +431,5 @@ internal class Program
         public bool ShowVersion { get; set; }
         public string? Theme { get; set; }
         public bool NoColor { get; set; }
-    }
-}
-
-// UI models moved to Editor/UiModels.cs
-
-internal sealed partial class EditorApp
-{
-    private readonly AppConfigCli.Core.IConfigRepository _repo;
-    private readonly string _authModeDesc;
-    internal readonly Func<Task>? WhoAmI;
-
-
-    internal string? Prefix { get; set; }
-    internal string? Label { get; set; }
-    internal List<Item> Items { get; } = [];
-    internal string? KeyRegexPattern { get; set; }
-    internal Regex? KeyRegex { get; set; }
-    internal Regex? ValueHighlightRegex { get; set; }
-    internal IFileSystem Filesystem { get; init; }
-    internal IExternalEditor ExternalEditor { get; init; }
-    internal ConsoleTheme Theme { get; init; }
-    internal List<string> CommandHistory { get; } = new List<string>();
-
-    public EditorApp(AppConfigCli.Core.IConfigRepository repo, string? prefix, string? label, Func<Task>? whoAmI = null, string authModeDesc = "", IFileSystem? fs = null, IExternalEditor? externalEditor = null, ConsoleTheme? theme = null)
-    {
-        _repo = repo;
-        Prefix = prefix;
-        Label = label;
-        WhoAmI = whoAmI;
-        _authModeDesc = authModeDesc;
-        Filesystem = fs ?? new DefaultFileSystem();
-        ExternalEditor = externalEditor ?? new DefaultExternalEditor();
-        Theme = theme ?? ConsoleTheme.Load();
-    }
-
-    // Paging state
-    private int _pageIndex = 0; // zero-based
-
-    private void PageUp()
-    {
-        var total = GetVisibleItems().Count;
-        int pageSize, pageCount;
-        try { int h = Console.WindowHeight; int w = Console.WindowWidth; ComputePaging(h, total, GetHeaderLineCountForWidth(Math.Max(20, Math.Min(w, 240))), out pageSize, out pageCount); }
-        catch { ComputePaging(40, total, GetHeaderLineCountForWidth(100), out pageSize, out pageCount); }
-        if (pageCount <= 1) { _pageIndex = 0; return; }
-        _pageIndex = Math.Max(0, _pageIndex - 1);
-    }
-
-    private void PageDown()
-    {
-        var total = GetVisibleItems().Count;
-        int pageSize, pageCount;
-        try { int h = Console.WindowHeight; int w = Console.WindowWidth; ComputePaging(h, total, GetHeaderLineCountForWidth(Math.Max(20, Math.Min(w, 240))), out pageSize, out pageCount); }
-        catch { ComputePaging(40, total, GetHeaderLineCountForWidth(100), out pageSize, out pageCount); }
-        if (pageCount <= 1) { _pageIndex = 0; return; }
-        _pageIndex = Math.Min(pageCount - 1, _pageIndex + 1);
-    }
-
-    // Allow commands to trigger paging during custom prompts
-    internal void PageUpCommand() => PageUp();
-    internal void PageDownCommand() => PageDown();
-
-    public async Task LoadAsync()
-    {
-        // Build server snapshot
-        var server = (await _repo.ListAsync(Prefix, Label)).ToList();
-
-        // Map local items to Core using Mapperly
-        var mapper = new EditorMappers();
-        var local = Items.Select(mapper.ToCoreItem).ToList();
-
-        var reconciler = new AppStateReconciler();
-        var freshCore = reconciler.Reconcile(Prefix ?? string.Empty, Label, local, server);
-
-        Items.Clear();
-        foreach (var it in freshCore)
-        {
-            Items.Add(mapper.ToUiItem(it));
-        }
-    }
-
-    public async Task RunAsync()
-    {
-        var prevTreatCtrlC = Console.TreatControlCAsInput;
-        Console.TreatControlCAsInput = true;
-        try
-        {
-            while (true)
-            {
-                Render();
-                var (ctrlC, input) = ReadLineOrCtrlC(
-                    CommandHistory,
-                    onRepaint: () =>
-                    {
-                        Render();
-                        int left, top;
-                        try { left = Console.CursorLeft; top = Console.CursorTop; }
-                        catch { left = 0; top = 0; }
-                        return (left, top);
-                    },
-                    onPageUp: () => PageUp(),
-                    onPageDown: () => PageDown());
-                if (ctrlC)
-                {
-                    var quit = new Command.Quit();
-                    var shouldExit = await quit.TryQuitAsync(this);
-                    if (shouldExit) return;
-                    // back to main screen
-                    continue;
-                }
-                if (input is null) continue;
-                if (!CommandParser.TryParse(input, out var cmd, out var err) || cmd is null)
-                {
-                    if (!string.IsNullOrEmpty(err))
-                    {
-                        Console.WriteLine(err);
-                        Console.WriteLine("Press Enter to continue...");
-                        Console.ReadLine();
-                    }
-                    continue;
-                }
-                var result = await cmd.ExecuteAsync(this);
-                // Add executed command to history unless it is a duplicate of the last entry
-                if (!string.IsNullOrWhiteSpace(input))
-                {
-                    var last = CommandHistory.Count > 0 ? CommandHistory[^1] : null;
-                    if (!string.Equals(last, input, StringComparison.Ordinal))
-                    {
-                        CommandHistory.Add(input);
-                    }
-                }
-                if (result.ShouldExit) return;
-            }
-        }
-        finally
-        {
-            Console.TreatControlCAsInput = prevTreatCtrlC;
-        }
-    }
-
-    // Command prompt line editor with history, cursor movement, word jumps, delete/backspace, ESC-to-clear, and instant Ctrl+C
-    internal static (bool CtrlC, string? Text) ReadLineOrCtrlC(
-        List<string>? history = null,
-        Func<(int Left, int Top)>? onRepaint = null,
-        Action? onPageUp = null,
-        Action? onPageDown = null)
-    {
-        var buffer = new StringBuilder();
-        int cursor = 0; // insertion index in buffer
-        int startLeft, startTop;
-        try { startLeft = Console.CursorLeft; startTop = Console.CursorTop; }
-        catch { startLeft = 0; startTop = 0; }
-        int scrollStart = 0; // index in buffer where the viewport starts
-        int lastW = 0, lastH = 0;
-        try { lastW = Console.WindowWidth; lastH = Console.WindowHeight; } catch { lastW = 0; lastH = 0; }
-
-        // History navigation state
-        int histIndex = history?.Count ?? 0; // one past the last (bottom slot)
-        string draft = string.Empty; // user's in-progress new command at bottom
-        bool modifiedFromHistory = false; // set when user edits a recalled history line
-
-        // If there is effectively no room on this line, move to a fresh line
-        try
-        {
-            int initialAvail = Math.Max(0, Console.WindowWidth - startLeft - 1);
-            if (initialAvail < 10)
-            {
-                Console.WriteLine();
-                startLeft = 0;
-                startTop = Console.CursorTop;
-            }
-        }
-        catch { }
-
-        void Render()
-        {
-            int winWidth;
-            try { winWidth = Console.WindowWidth; }
-            catch { winWidth = 80; }
-
-            int contentWidth = Math.Max(1, winWidth - startLeft - 1);
-
-            // Keep cursor within viewport
-            if (cursor < scrollStart) scrollStart = cursor;
-            if (cursor - scrollStart >= contentWidth) scrollStart = Math.Max(0, cursor - contentWidth + 1);
-
-            int end = Math.Min(buffer.Length, scrollStart + contentWidth);
-            string view = buffer.ToString(scrollStart, end - scrollStart);
-
-            // Show ellipsis if scrolled left/right, but avoid replacing the only visible character
-            // so the user can still see part of the command when space is very tight.
-            int winVisible = Math.Max(1, Math.Min(view.Length, contentWidth));
-            if (winVisible > 1)
-            {
-                if (scrollStart > 0 && view.Length > 0)
-                {
-                    view = '…' + (view.Length > 1 ? view[1..] : string.Empty);
-                }
-                if (end < buffer.Length && view.Length > 0)
-                {
-                    view = (view.Length > 1 ? view[..^1] : string.Empty) + '…';
-                }
-            }
-
-            // Render view padded to the full content width to clear remnants
-            try
-            {
-                Console.SetCursorPosition(startLeft, startTop);
-                int vlen = Math.Min(view.Length, contentWidth);
-                if (vlen > 0) Console.Write(view[..vlen]);
-                if (vlen < contentWidth)
-                {
-                    Console.Write(new string(' ', contentWidth - vlen));
-                }
-                // Place cursor within the view
-                int cursorCol = startLeft + Math.Min(cursor - scrollStart, contentWidth - 1);
-                int safeCol = Math.Min(Math.Max(0, winWidth - 1), Math.Max(0, cursorCol));
-                Console.SetCursorPosition(safeCol, startTop);
-            }
-            catch { }
-        }
-
-        // Initial render
-        Render();
-
-        static bool IsWordChar(char c) => char.IsLetterOrDigit(c);
-
-        while (true)
-        {
-            // Auto-refresh on console resize
-            try
-            {
-                int w = Console.WindowWidth, h = Console.WindowHeight;
-                if ((w != lastW || h != lastH) && onRepaint is not null)
-                {
-                    lastW = w; lastH = h;
-                    var pos = onRepaint();
-                    startLeft = pos.Left; startTop = pos.Top;
-                }
-            }
-            catch { }
-
-            ConsoleKeyInfo key;
-            if (Console.KeyAvailable)
-            {
-                key = Console.ReadKey(intercept: true);
-            }
-            else
-            {
-                // Small sleep to avoid busy-spin when waiting for resize
-                try { System.Threading.Thread.Sleep(50); } catch { }
-                continue;
-            }
-            // Ctrl+C pressed -> signal to caller
-            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.C)
-            {
-                Console.WriteLine();
-                return (true, null);
-            }
-            if (key.Key == ConsoleKey.Enter)
-            {
-                Console.WriteLine();
-                return (false, buffer.ToString());
-            }
-            // Paging hotkeys (PgUp/PgDn) trigger a repaint of the item list but keep editing the prompt
-            if (key.Key == ConsoleKey.PageUp || key.Key == ConsoleKey.PageDown)
-            {
-                try
-                {
-                    if (key.Key == ConsoleKey.PageUp) onPageUp?.Invoke(); else onPageDown?.Invoke();
-                    if (onRepaint is not null)
-                    {
-                        var pos = onRepaint();
-                        startLeft = pos.Left; startTop = pos.Top;
-                    }
-                }
-                catch { }
-                Render();
-                continue;
-            }
-            if (key.Key == ConsoleKey.Escape)
-            {
-                // Clear the entire line and keep editing (do not issue a command)
-                if (histIndex != (history?.Count ?? 0))
-                {
-                    // move to bottom draft when clearing
-                    histIndex = history?.Count ?? 0;
-                }
-                buffer.Clear();
-                cursor = 0;
-                scrollStart = 0;
-                draft = string.Empty;
-                modifiedFromHistory = true;
-                Render();
-                continue;
-            }
-
-            // History navigation (Up/Down)
-            if (key.Key == ConsoleKey.UpArrow && history is not null)
-            {
-                if (histIndex > 0)
-                {
-                    if (histIndex == history.Count)
-                        draft = buffer.ToString();
-                    histIndex--;
-                    buffer.Clear();
-                    buffer.Append(history[histIndex]);
-                    cursor = buffer.Length;
-                    // Position viewport to show as much of the tail as fits
-                    int winWidth; try { winWidth = Console.WindowWidth; } catch { winWidth = 80; }
-                    int contentWidth = Math.Max(1, winWidth - startLeft - 1);
-                    scrollStart = Math.Max(0, cursor - contentWidth + 1);
-                    modifiedFromHistory = false;
-                    Render();
-                }
-                continue;
-            }
-            if (key.Key == ConsoleKey.DownArrow && history is not null)
-            {
-                if (histIndex < history.Count)
-                {
-                    histIndex++;
-                    buffer.Clear();
-                    if (histIndex == history.Count)
-                    {
-                        buffer.Append(draft);
-                    }
-                    else
-                    {
-                        buffer.Append(history[histIndex]);
-                    }
-                    cursor = buffer.Length;
-                    // Position viewport to show as much of the tail as fits
-                    int winWidth; try { winWidth = Console.WindowWidth; } catch { winWidth = 80; }
-                    int contentWidth = Math.Max(1, winWidth - startLeft - 1);
-                    scrollStart = Math.Max(0, cursor - contentWidth + 1);
-                    modifiedFromHistory = false;
-                    Render();
-                }
-                continue;
-            }
-
-            // Editing a recalled history entry -> transition to bottom draft on first modification
-            void EnsureDraft()
-            {
-                if (histIndex != (history?.Count ?? 0) && !modifiedFromHistory)
-                {
-                    modifiedFromHistory = true;
-                    draft = buffer.ToString();
-                    histIndex = history?.Count ?? 0;
-                }
-            }
-
-            // Word-wise navigation/deletion with Ctrl or Alt
-            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.LeftArrow)
-            {
-                if (cursor > 0)
-                {
-                    int i = cursor - 1;
-                    while (i >= 0 && !IsWordChar(i < buffer.Length ? buffer[i] : ' ')) i--;
-                    while (i >= 0 && IsWordChar(buffer[i])) i--;
-                    cursor = Math.Max(0, i + 1);
-                    Render();
-                }
-                continue;
-            }
-            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.RightArrow)
-            {
-                if (cursor < buffer.Length)
-                {
-                    int i = cursor;
-                    while (i < buffer.Length && !IsWordChar(buffer[i])) i++;
-                    while (i < buffer.Length && IsWordChar(buffer[i])) i++;
-                    cursor = i;
-                    Render();
-                }
-                continue;
-            }
-            if (((key.Modifiers & ConsoleModifiers.Control) != 0 || (key.Modifiers & ConsoleModifiers.Alt) != 0) && key.Key == ConsoleKey.Backspace)
-            {
-                EnsureDraft();
-                if (cursor > 0)
-                {
-                    int start = cursor - 1, i = start;
-                    while (i >= 0 && !IsWordChar(buffer[i])) i--;
-                    while (i >= 0 && IsWordChar(buffer[i])) i--;
-                    int delFrom = Math.Max(0, i + 1);
-                    int delLen = cursor - delFrom;
-                    if (delLen > 0)
-                    {
-                        buffer.Remove(delFrom, delLen);
-                        cursor = delFrom;
-                        if (histIndex == (history?.Count ?? 0)) draft = buffer.ToString();
-                        Render();
-                    }
-                }
-                continue;
-            }
-            if (((key.Modifiers & ConsoleModifiers.Control) != 0 || (key.Modifiers & ConsoleModifiers.Alt) != 0) && key.Key == ConsoleKey.Delete)
-            {
-                EnsureDraft();
-                if (cursor < buffer.Length)
-                {
-                    int i = cursor;
-                    while (i < buffer.Length && !IsWordChar(buffer[i])) i++;
-                    while (i < buffer.Length && IsWordChar(buffer[i])) i++;
-                    int delLen = Math.Max(0, i - cursor);
-                    if (delLen > 0)
-                    {
-                        buffer.Remove(cursor, delLen);
-                        if (histIndex == (history?.Count ?? 0)) draft = buffer.ToString();
-                        Render();
-                    }
-                }
-                continue;
-            }
-
-            // Basic navigation
-            if (key.Key == ConsoleKey.LeftArrow)
-            {
-                if (cursor > 0) { cursor--; Render(); }
-                continue;
-            }
-            if (key.Key == ConsoleKey.RightArrow)
-            {
-                if (cursor < buffer.Length) { cursor++; Render(); }
-                continue;
-            }
-            if (key.Key == ConsoleKey.Home)
-            {
-                cursor = 0; Render();
-                continue;
-            }
-            if (key.Key == ConsoleKey.End)
-            {
-                cursor = buffer.Length; Render();
-                continue;
-            }
-
-            // Deletions
-            if (key.Key == ConsoleKey.Backspace)
-            {
-                EnsureDraft();
-                if (cursor > 0)
-                {
-                    buffer.Remove(cursor - 1, 1);
-                    cursor--;
-                    if (histIndex == (history?.Count ?? 0)) draft = buffer.ToString();
-                    Render();
-                }
-                continue;
-            }
-            if (key.Key == ConsoleKey.Delete)
-            {
-                EnsureDraft();
-                if (cursor < buffer.Length)
-                {
-                    buffer.Remove(cursor, 1);
-                    if (histIndex == (history?.Count ?? 0)) draft = buffer.ToString();
-                    Render();
-                }
-                continue;
-            }
-
-            // Insert characters
-            if (!char.IsControl(key.KeyChar))
-            {
-                EnsureDraft();
-                buffer.Insert(cursor, key.KeyChar);
-                cursor++;
-                if (histIndex == (history?.Count ?? 0)) draft = buffer.ToString();
-                Render();
-                continue;
-            }
-        }
-    }
-
-    // Simpler input reader for command prompts: supports ESC/Ctrl+C cancel and PageUp/PageDown via callbacks
-    internal static (bool Cancelled, string? Text) ReadLineWithPagingCancelable(
-        Func<(int Left, int Top)> onRepaint,
-        Action onPageUp,
-        Action onPageDown)
-    {
-        var buffer = new StringBuilder();
-        int cursor = 0; // insertion index
-        int startLeft, startTop;
-        try { startLeft = Console.CursorLeft; startTop = Console.CursorTop; }
-        catch { startLeft = 0; startTop = 0; }
-
-        void Render()
-        {
-            try { Console.SetCursorPosition(startLeft, startTop); } catch { }
-            var text = buffer.ToString();
-            Console.Write(text);
-            // Clear any trailing remnants by writing a space and moving back
-            Console.Write(' ');
-            try { Console.SetCursorPosition(startLeft + cursor, startTop); } catch { }
-        }
-
-        Render();
-        while (true)
-        {
-            ConsoleKeyInfo key;
-            if (Console.KeyAvailable)
-                key = Console.ReadKey(intercept: true);
-            else { try { System.Threading.Thread.Sleep(25); } catch { } continue; }
-
-            // Cancel keys
-            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.C)
-            {
-                Console.WriteLine();
-                return (true, null);
-            }
-            if (key.Key == ConsoleKey.Escape)
-            {
-                Console.WriteLine();
-                return (true, null);
-            }
-
-            // Paging
-            if (key.Key == ConsoleKey.PageUp || key.Key == ConsoleKey.PageDown)
-            {
-                try { if (key.Key == ConsoleKey.PageUp) onPageUp(); else onPageDown(); } catch { }
-                try
-                {
-                    var pos = onRepaint();
-                    startLeft = pos.Left; startTop = pos.Top;
-                }
-                catch { }
-                Render();
-                continue;
-            }
-
-            // Navigation keys
-            if (key.Key == ConsoleKey.LeftArrow)
-            {
-                if (cursor > 0) { cursor--; Render(); }
-                continue;
-            }
-            if (key.Key == ConsoleKey.RightArrow)
-            {
-                if (cursor < buffer.Length) { cursor++; Render(); }
-                continue;
-            }
-            if (key.Key == ConsoleKey.Home)
-            {
-                cursor = 0; Render();
-                continue;
-            }
-            if (key.Key == ConsoleKey.End)
-            {
-                cursor = buffer.Length; Render();
-                continue;
-            }
-
-            // Word-wise navigation/deletion (Ctrl + arrows/backspace/delete)
-            static bool IsWordChar(char c) => char.IsLetterOrDigit(c);
-            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.LeftArrow)
-            {
-                if (cursor > 0)
-                {
-                    int i = cursor - 1;
-                    while (i >= 0 && !IsWordChar(i < buffer.Length ? buffer[i] : ' ')) i--;
-                    while (i >= 0 && IsWordChar(buffer[i])) i--;
-                    cursor = Math.Max(0, i + 1);
-                    Render();
-                }
-                continue;
-            }
-            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.RightArrow)
-            {
-                if (cursor < buffer.Length)
-                {
-                    int i = cursor;
-                    while (i < buffer.Length && !IsWordChar(buffer[i])) i++;
-                    while (i < buffer.Length && IsWordChar(buffer[i])) i++;
-                    cursor = i;
-                    Render();
-                }
-                continue;
-            }
-            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.Backspace)
-            {
-                if (cursor > 0)
-                {
-                    int start = cursor - 1, i = start;
-                    while (i >= 0 && !IsWordChar(buffer[i])) i--;
-                    while (i >= 0 && IsWordChar(buffer[i])) i--;
-                    int delFrom = Math.Max(0, i + 1);
-                    int delLen = cursor - delFrom;
-                    if (delLen > 0)
-                    {
-                        buffer.Remove(delFrom, delLen);
-                        cursor = delFrom;
-                        Render();
-                    }
-                }
-                continue;
-            }
-            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.Delete)
-            {
-                if (cursor < buffer.Length)
-                {
-                    int i = cursor;
-                    while (i < buffer.Length && !IsWordChar(buffer[i])) i++;
-                    while (i < buffer.Length && IsWordChar(buffer[i])) i++;
-                    int delLen = Math.Max(0, i - cursor);
-                    if (delLen > 0)
-                    {
-                        buffer.Remove(cursor, delLen);
-                        Render();
-                    }
-                }
-                continue;
-            }
-
-            if (key.Key == ConsoleKey.Enter)
-            {
-                Console.WriteLine();
-                return (false, buffer.ToString());
-            }
-            if (key.Key == ConsoleKey.Backspace)
-            {
-                if (cursor > 0)
-                {
-                    buffer.Remove(cursor - 1, 1);
-                    cursor--;
-                    Render();
-                }
-                continue;
-            }
-            if (key.Key == ConsoleKey.Delete)
-            {
-                if (cursor < buffer.Length)
-                {
-                    buffer.Remove(cursor, 1);
-                    Render();
-                }
-                continue;
-            }
-            if (!char.IsControl(key.KeyChar))
-            {
-                buffer.Insert(cursor, key.KeyChar);
-                cursor++;
-                Render();
-                continue;
-            }
-        }
-    }
-
-    private static string MakeKey(string fullKey, string? label)
-        => fullKey + "\n" + (label ?? string.Empty);
-
-    internal async Task SaveAsync(bool pause = true)
-    {
-        Console.WriteLine("Saving changes...");
-        int changes = 0;
-
-        // Compute consolidated change set using Core.ChangeApplier
-        var mapper = new EditorMappers();
-        var coreItems = Items.Select(mapper.ToCoreItem).ToList();
-        var changeSet = AppConfigCli.Core.ChangeApplier.Compute(coreItems);
-
-        // Apply upserts (last-wins per key/label already handled in ChangeApplier)
-        foreach (var up in changeSet.Upserts)
-        {
-            try
-            {
-                await _repo.UpsertAsync(up);
-
-                // Mark all corresponding UI items as unchanged and sync OriginalValue
-                foreach (var it in Items.Where(i =>
-                    i.FullKey == up.Key &&
-                    string.Equals(AppConfigCli.Core.LabelFilter.ForWrite(i.Label), up.Label, StringComparison.Ordinal)).ToList())
-                {
-                    it.OriginalValue = it.Value;
-                    it.State = ItemState.Unchanged;
-                }
-                changes++;
-            }
-            catch (RequestFailedException ex)
-            {
-                Console.WriteLine($"Failed to set '{up.Key}': {ex.Message}");
-            }
-        }
-
-        // Apply deletions
-        foreach (var del in changeSet.Deletes)
-        {
-            try
-            {
-                await _repo.DeleteAsync(del.Key, del.Label);
-                // Remove only items marked as Deleted for that key/label
-                for (int idx = Items.Count - 1; idx >= 0; idx--)
-                {
-                    var it = Items[idx];
-                    if (it.State != ItemState.Deleted) continue;
-                    if (it.FullKey != del.Key) continue;
-                    if (!string.Equals(AppConfigCli.Core.LabelFilter.ForWrite(it.Label), del.Label, StringComparison.Ordinal)) continue;
-                    Items.RemoveAt(idx);
-                }
-                changes++;
-            }
-            catch (RequestFailedException ex)
-            {
-                Console.WriteLine($"Failed to delete '{del.Key}': {ex.Message}");
-            }
-        }
-
-        Console.WriteLine(changes == 0 ? "No changes to save." : $"Saved {changes} change(s).");
-        if (pause)
-        {
-            Console.WriteLine("Press Enter to continue...");
-            Console.ReadLine();
-        }
-    }
-
-    internal bool HasPendingChanges(out int newCount, out int modCount, out int delCount)
-    {
-        newCount = Items.Count(i => i.State == ItemState.New);
-        modCount = Items.Count(i => i.State == ItemState.Modified);
-        delCount = Items.Count(i => i.State == ItemState.Deleted);
-        return (newCount + modCount + delCount) > 0;
-    }
-
-    internal static int CompareItems(Item a, Item b)
-    {
-        //TODO: This utility function should be moved somewhere else
-        int c = string.Compare(a.ShortKey, b.ShortKey, StringComparison.Ordinal);
-        if (c != 0) return c;
-        return string.Compare(a.Label ?? string.Empty, b.Label ?? string.Empty, StringComparison.Ordinal);
-    }
-
-    internal void ConsolidateDuplicates()
-    {
-        var groups = Items.GroupBy(i => MakeKey(i.FullKey, i.Label)).ToList();
-        foreach (var g in groups)
-        {
-            if (g.Count() <= 1) continue;
-            var keep = g.FirstOrDefault(i => i.State != ItemState.Deleted) ?? g.First();
-            foreach (var extra in g)
-            {
-                if (!ReferenceEquals(extra, keep))
-                {
-                    Items.Remove(extra);
-                }
-            }
-        }
-    }
-
-    internal List<Item> GetVisibleItems()
-    {
-        // Delegate visibility to Core.ItemFilter to keep semantics centralized
-        var mapper = new EditorMappers();
-        var coreList = Items.Select(mapper.ToCoreItem).ToList();
-        var indices = AppConfigCli.Core.ItemFilter.VisibleIndices(coreList, Label, KeyRegex);
-        var result = new List<Item>(indices.Count);
-        foreach (var idx in indices)
-        {
-            result.Add(Items[idx]);
-        }
-        return result;
-    }
-
-    // Helpers for building nested object/list structure from split keys
-    private void AddPathToTree(Dictionary<string, object> node, string[] segments, string value)
-    {
-        if (segments.Length == 0)
-        {
-            node["__value"] = value;
-            return;
-        }
-        var head = segments[0];
-        if (!node.TryGetValue(head, out var child))
-        {
-            if (segments.Length == 1)
-            {
-                node[head] = value;
-                return;
-            }
-            bool nextIsIndex = int.TryParse(segments[1], out _);
-            if (nextIsIndex)
-            {
-                var list = new List<object?>();
-                node[head] = list;
-                AddPathToList(list, segments[1..], value);
-            }
-            else
-            {
-                var dict = new Dictionary<string, object>(StringComparer.Ordinal);
-                node[head] = dict;
-                AddPathToTree(dict, segments[1..], value);
-            }
-        }
-        else if (child is string s)
-        {
-            bool nextIsIndex = segments.Length > 1 && int.TryParse(segments[1], out _);
-            if (nextIsIndex)
-            {
-                var list = new List<object?>();
-                node[head] = list;
-                AddPathToList(list, segments[1..], value);
-            }
-            else
-            {
-                var dict = new Dictionary<string, object>(StringComparer.Ordinal) { ["__value"] = s };
-                node[head] = dict;
-                AddPathToTree(dict, segments[1..], value);
-            }
-        }
-        else if (child is Dictionary<string, object> dict)
-        {
-            if (segments.Length == 1)
-            {
-                dict["__value"] = value;
-            }
-            else
-            {
-                AddPathToTree(dict, segments[1..], value);
-            }
-        }
-        else if (child is List<object?> list)
-        {
-            AddPathToList(list, segments[1..], value);
-        }
-    }
-
-    private void AddPathToList(List<object?> list, string[] segments, string value)
-    {
-        if (segments.Length == 0) return;
-        var idxStr = segments[0];
-        if (!int.TryParse(idxStr, out int idx))
-        {
-            EnsureListSize(list, 1);
-            var head = 0;
-            if (list[head] is not Dictionary<string, object> d)
-            {
-                d = new Dictionary<string, object>(StringComparer.Ordinal);
-                list[head] = d;
-            }
-            AddPathToTree(d, segments, value);
-            return;
-        }
-        EnsureListSize(list, idx + 1);
-        var child = list[idx];
-        if (segments.Length == 1)
-        {
-            list[idx] = value;
-            return;
-        }
-        bool nextIsIndex = int.TryParse(segments[1], out _);
-        if (child is null)
-        {
-            if (nextIsIndex)
-            {
-                var inner = new List<object?>();
-                list[idx] = inner;
-                AddPathToList(inner, segments[1..], value);
-            }
-            else
-            {
-                var d = new Dictionary<string, object>(StringComparer.Ordinal);
-                list[idx] = d;
-                AddPathToTree(d, segments[1..], value);
-            }
-        }
-        else if (child is string s)
-        {
-            if (nextIsIndex)
-            {
-                var inner = new List<object?>();
-                list[idx] = inner;
-                AddPathToList(inner, segments[1..], value);
-            }
-            else
-            {
-                var d = new Dictionary<string, object>(StringComparer.Ordinal) { ["__value"] = s };
-                list[idx] = d;
-                AddPathToTree(d, segments[1..], value);
-            }
-        }
-        else if (child is Dictionary<string, object> d2)
-        {
-            AddPathToTree(d2, segments[1..], value);
-        }
-        else if (child is List<object?> l)
-        {
-            AddPathToList(l, segments[1..], value);
-        }
-    }
-
-    private static void EnsureListSize(List<object?> list, int size)
-    {
-        while (list.Count < size) list.Add(null);
-    }
-
-    internal List<int>? MapVisibleRangeToItemIndices(int start, int end, out string error)
-    {
-        // Use Core.ItemFilter to compute indices against a mapped Core list
-        var mapper = new EditorMappers();
-        var coreList = Items.Select(mapper.ToCoreItem).ToList();
-        var indices = AppConfigCli.Core.ItemFilter.MapVisibleRangeToSourceIndices(coreList, Label, KeyRegex, start, end, out error);
-        return indices;
-    }
-
-    // Cached prefix candidates built from all repository keys plus current in-memory items
-    private List<string>? _prefixCache;
-    internal void InvalidatePrefixCache()
-    {
-        _prefixCache = null;
-    }
-
-    internal async Task<IReadOnlyList<string>> GetPrefixCandidatesAsync()
-    {
-        if (_prefixCache is not null)
-            return _prefixCache;
-
-        var set = new HashSet<string>(StringComparer.Ordinal);
-
-        // Include in-memory items (unsaved/new)
-        foreach (var it in Items)
-        {
-            if (it.FullKey != null)
-            {
-                var index = it.FullKey.IndexOf('/');
-                if (index > 0) set.Add(it.FullKey[..(index + 1)]);
-            }
-        }
-
-        // Include all repository entries (ignoring filters)
-        //TODO: We could filter by Label, if we invalidate the cache on label change
-        var allKeys = await _repo.FetchKeysAsync(prefix: null, labelFilter: null).ConfigureAwait(false);
-        foreach (var key in allKeys)
-        {
-            var index = key.IndexOf('/');
-            if (index > 0)
-            {
-                set.Add(key[..(index + 1)]);
-            }
-        }
-
-        _prefixCache = [.. set.OrderBy(s => s, StringComparer.Ordinal)];
-        return _prefixCache;
-    }
-
-    internal bool TryAddPrefixFromKey(string key)
-    {
-        if (_prefixCache is null)
-            return false; // cache not built yet
-
-        if (string.IsNullOrEmpty(key))
-            return false; // no key => no prefix
-
-        var keyIndex = key.IndexOf('/');
-        if (keyIndex <= 0)
-            return false; // no prefix
-
-        var prefix = key[..(keyIndex + 1)];
-
-        var prefixIndex = _prefixCache.BinarySearch(prefix, StringComparer.Ordinal);
-        if (prefixIndex >= 0)
-            return false; // already present
-
-        // insert prefix in sorted order
-        _prefixCache.Insert(~prefixIndex, prefix);
-        return true;
     }
 }

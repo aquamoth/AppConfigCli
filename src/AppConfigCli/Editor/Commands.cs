@@ -1,9 +1,4 @@
-using System;
-using System.Threading.Tasks;
-using System;
-using System.Collections.Generic;
 using System.Globalization;
-using System.Threading.Tasks;
 
 namespace AppConfigCli;
 
@@ -38,21 +33,21 @@ internal abstract partial record Command
     // Centralized list of all command specs (content lives in each command file)
     public static IReadOnlyList<CommandSpec> AllSpecs =>
     [
-        Add.Spec,
-        Delete.Spec,
-        Copy.Spec,
-        Replace.Spec,
-        Label.Spec,
-        Grep.Spec,
-        Save.Spec,
-        Reload.Spec,
-        Quit.Spec,
-        Help.Spec,
-        Open.Spec,
-        Prefix.Spec,
-        Undo.Spec,
-        Json.Spec,
-        Yaml.Spec,
-        WhoAmI.Spec,
+        Editor.Commands.Add.Spec,
+        Editor.Commands.Delete.Spec,
+        Editor.Commands.Copy.Spec,
+        Editor.Commands.Replace.Spec,
+        Editor.Commands.Label.Spec,
+        Editor.Commands.Grep.Spec,
+        Editor.Commands.Save.Spec,
+        Editor.Commands.Reload.Spec,
+        Editor.Commands.Quit.Spec,
+        Editor.Commands.Help.Spec,
+        Editor.Commands.Open.Spec,
+        Editor.Commands.Prefix.Spec,
+        Editor.Commands.Undo.Spec,
+        Editor.Commands.Json.Spec,
+        Editor.Commands.Yaml.Spec,
+        Editor.Commands.WhoAmI.Spec,
     ];
 }

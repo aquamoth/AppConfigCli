@@ -4,7 +4,7 @@ using AppConfigCli;
 using FluentAssertions;
 using Xunit;
 
-public class RangeMapperTests
+public class _RangeMapper
 {
     private static List<Item> Sample()
     {
@@ -18,7 +18,7 @@ public class RangeMapperTests
     }
 
     [Fact]
-    public void Maps_any_label_range()
+    public void maps_any_label_range()
     {
         var src = Sample();
         var idx = RangeMapper.Map(src, null, null, 1, 2, out var error);
@@ -27,7 +27,7 @@ public class RangeMapperTests
     }
 
     [Fact]
-    public void Maps_literal_label_and_regex()
+    public void maps_literal_label_and_regex()
     {
         var src = Sample();
         var re = new Regex("^C", RegexOptions.Compiled | RegexOptions.IgnoreCase);
@@ -36,4 +36,3 @@ public class RangeMapperTests
         idx.Should().Equal(new[] { 3 });
     }
 }
-

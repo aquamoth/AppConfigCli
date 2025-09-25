@@ -1,27 +1,76 @@
+using AppConfigCli.Core;
+using AppConfigCli.Core.UI;
+using AppConfigCli.Editor.Abstractions;
+using Azure;
 using System;
 using System.Collections.Generic;
 using System.Linq;
-using AppConfigCli.Core.UI;
+using System.Text.RegularExpressions;
 
 namespace AppConfigCli;
 
-internal sealed partial class EditorApp
+internal sealed class EditorApp
 {
     // Define which characters count as "control" for highlighting
-    private static readonly System.Collections.Generic.HashSet<char> ControlChars =
-        new System.Collections.Generic.HashSet<char>(",.-[]{}!:/\\()@#$%^&*+=?|<>;'\"_".ToCharArray());
+    private static readonly HashSet<char> ControlChars = [.. ",.-[]{}!:/\\()@#$%^&*+=?|<>;'\"_".ToCharArray()];
+
+    private readonly IConfigRepository _repo;
+    internal readonly Func<Task>? WhoAmI;
+
+    // Paging state
+    private int _pageIndex = 0;
+
+    // Cached prefix candidates built from all repository keys plus current in-memory items
+    private List<string>? _prefixCache;
+
+    internal string? Prefix { get; set; }
+    internal string? Label { get; set; }
+    internal List<Item> Items { get; } = [];
+    internal string? KeyRegexPattern { get; set; }
+    internal Regex? KeyRegex { get; set; }
+    internal Regex? ValueHighlightRegex { get; set; }
+    internal IFileSystem Filesystem { get; init; }
+    internal IExternalEditor ExternalEditor { get; init; }
+    internal ConsoleTheme Theme { get; init; }
+    internal List<string> CommandHistory { get; } = [];
+
+    // Test-only hooks for integration tests (internal visibility)
+    internal List<Item> Test_Items => Items;
+    internal Task Test_SaveAsync() => SaveAsync(pause: false);
+
+    public EditorApp(
+        IConfigRepository repo,
+        string? prefix,
+        string? label,
+        Func<Task> whoAmI,
+        IFileSystem fs,
+        IExternalEditor externalEditor,
+        ConsoleTheme theme,
+        IConsoleEx consoleEx)
+    {
+        _repo = repo;
+        Prefix = prefix;
+        Label = label;
+        WhoAmI = whoAmI;
+        Filesystem = fs;
+        ExternalEditor = externalEditor;
+        Theme = theme;
+        ConsoleEx = consoleEx;
+    }
+
+    internal IConsoleEx ConsoleEx { get; init; }
 
     private void Render()
     {
-        Console.Clear();
+        ConsoleEx.Clear();
         var width = GetWindowWidth();
         var height = GetWindowHeight();
         bool includeValue = width >= 60; // minimal width for value column
         var visible = GetVisibleItems();
 
-        // Build header lines for filters and compute paging height accordingly
-        var headerLines = BuildFilterHeaderLines(width);
-        ComputePaging(height, visible.Count, headerLines.Count, out var pageSize, out var pageCount);
+        // Compute header line count via shared layout service (no rendering here)
+        int headerLineCount = GetHeaderLineCountForWidth(width);
+        ComputePaging(height, visible.Count, headerLineCount, out var pageSize, out var pageCount);
         if (_pageIndex >= pageCount) _pageIndex = Math.Max(0, pageCount - 1);
         if (_pageIndex < 0) _pageIndex = 0;
         var pageText = pageCount > 1 ? $"PAGE {_pageIndex + 1}/{pageCount}" : string.Empty;
@@ -30,15 +79,15 @@ internal sealed partial class EditorApp
         if (!string.IsNullOrEmpty(pageText))
         {
             int pad = Math.Max(1, width - title.Length - pageText.Length);
-            Console.WriteLine(title + new string(' ', pad) + pageText);
+            ConsoleEx.WriteLine(title + new string(' ', pad) + pageText);
         }
         else
         {
-            Console.WriteLine(title);
+            ConsoleEx.WriteLine(title);
         }
 
-        // Render header rows under the title with colored values
-        RenderFilterHeader(width);
+        // Render header rows using shared layout + console wrapper
+        RenderHeaderViaLayout(width);
 
         // Determine the current page slice before computing dynamic widths
         int pageStart = 0;
@@ -113,7 +162,7 @@ internal sealed partial class EditorApp
 
         // (Old static layout logic removed; using dynamic per-page widths computed above)
 
-        Console.WriteLine(new string('-', width));
+        ConsoleEx.WriteLine(new string('-', width));
         var idxHeader = "Idx".PadLeft(indexDigits);
         var header = new System.Text.StringBuilder();
         header.Append(idxHeader);
@@ -130,8 +179,8 @@ internal sealed partial class EditorApp
             header.Append("  ");
             header.Append("Value");
         }
-        Console.WriteLine(header.ToString());
-        Console.WriteLine(new string('-', width));
+        ConsoleEx.WriteLine(header.ToString());
+        ConsoleEx.WriteLine(new string('-', width));
 
         for (int i = 0; i < pageCountItems; i++)
         {
@@ -150,47 +199,47 @@ internal sealed partial class EditorApp
             var valDisp = valueWidth > 0 ? TextTruncation.TruncateFixed(valFull, valueWidth) : string.Empty;
 
             // Left prefix: index (dynamic width), status (1 char), then a space
-            Console.ForegroundColor = Theme.Default;
+            ConsoleEx.ForegroundColor = Theme.Default;
             var idxText = (pageStart + i + 1).ToString().PadLeft(indexDigits);
             bool isDirty = s != ' ';
             if (Theme.Enabled && isDirty)
             {
-                var prev = Console.ForegroundColor;
+                var prev = ConsoleEx.ForegroundColor;
                 var col = ClassifyColor(s); // use same color as status indicator
-                if (Console.ForegroundColor != col) Console.ForegroundColor = col;
-                Console.Write(idxText);
-                if (Console.ForegroundColor != prev) Console.ForegroundColor = prev;
+                if (ConsoleEx.ForegroundColor != col) ConsoleEx.ForegroundColor = col;
+                ConsoleEx.Write(idxText);
+                if (ConsoleEx.ForegroundColor != prev) ConsoleEx.ForegroundColor = prev;
             }
             else
             {
-                Console.Write(idxText);
+                ConsoleEx.Write(idxText);
             }
             if (Theme.Enabled)
             {
-                var prev = Console.ForegroundColor;
+                var prev = ConsoleEx.ForegroundColor;
                 var col = ClassifyColor(s);
-                if (Console.ForegroundColor != col) Console.ForegroundColor = col;
-                Console.Write(s);
-                if (Console.ForegroundColor != Theme.Default) Console.ForegroundColor = Theme.Default;
+                if (ConsoleEx.ForegroundColor != col) ConsoleEx.ForegroundColor = col;
+                ConsoleEx.Write(s);
+                if (ConsoleEx.ForegroundColor != Theme.Default) ConsoleEx.ForegroundColor = Theme.Default;
             }
             else
             {
-                Console.Write(s);
+                ConsoleEx.Write(s);
             }
-            Console.Write(' ');
+            ConsoleEx.Write(' ');
             // Key (colored)
-            if (Theme.Enabled) WriteColoredFixed(keyDisp, keyWidth); else Console.Write(PadColumn(keyDisp, keyWidth));
-            Console.ForegroundColor = Theme.Default;
+            if (Theme.Enabled) WriteColoredFixed(keyDisp, keyWidth); else ConsoleEx.Write(PadColumn(keyDisp, keyWidth));
+            ConsoleEx.ForegroundColor = Theme.Default;
             if (showLabelColumn)
             {
-                Console.Write("  ");
+                ConsoleEx.Write("  ");
                 // Label (unstyled)
-                Console.Write(PadColumn(labelDisp, labelWidth));
+                ConsoleEx.Write(PadColumn(labelDisp, labelWidth));
             }
 
             if (valueWidth > 0)
             {
-                Console.Write("  ");
+                ConsoleEx.Write("  ");
                 if (Theme.Enabled)
                 {
                     if (ValueHighlightRegex is not null)
@@ -200,15 +249,15 @@ internal sealed partial class EditorApp
                 }
                 else
                 {
-                    Console.Write(PadColumn(valDisp, valueWidth));
+                    ConsoleEx.Write(PadColumn(valDisp, valueWidth));
                 }
             }
-            Console.ForegroundColor = Theme.Default;
-            Console.WriteLine();
+            ConsoleEx.ForegroundColor = Theme.Default;
+            ConsoleEx.WriteLine("");
         }
 
         // Single-line prompt hint to avoid wrapping on narrow consoles
-        Console.Write("Command (h for help)> ");
+        ConsoleEx.Write("Command (h for help)> ");
     }
 
     // Expose a safe repaint for commands needing to trigger immediate UI refresh
@@ -217,11 +266,11 @@ internal sealed partial class EditorApp
         try { Render(); } catch { }
     }
 
-    private static int GetWindowHeight()
+    private int GetWindowHeight()
     {
         try
         {
-            var h = Console.WindowHeight;
+            var h = ConsoleEx.WindowHeight;
             return Math.Max(10, h);
         }
         catch
@@ -239,11 +288,11 @@ internal sealed partial class EditorApp
         pageCount = Math.Max(1, (int)Math.Ceiling(totalItems / (double)pageSize));
     }
 
-    private static int GetWindowWidth()
+    private int GetWindowWidth()
     {
         try
         {
-            var w = Console.WindowWidth;
+            var w = ConsoleEx.WindowWidth;
             // Allow narrow widths; we handle hiding columns below thresholds
             return Math.Max(20, w);
         }
@@ -253,323 +302,26 @@ internal sealed partial class EditorApp
         }
     }
 
-    // Build filter header lines with alignment rules and conditional visibility
-    private List<string> BuildFilterHeaderLines(int width)
+    // Expose header line count for paging during prompt PageUp/PageDown
+    internal int GetHeaderLineCountForWidth(int width)
     {
-        var lines = new List<string>();
-
-        // Determine active filters
         string? p = string.IsNullOrWhiteSpace(Prefix) ? null : $"Prefix: {Prefix}";
         string? l = Label is null ? null : $"Label: {(Label.Length == 0 ? "(none)" : Label)}";
         string? f = string.IsNullOrEmpty(KeyRegexPattern) ? null : $"Filter: {KeyRegexPattern}";
-
-        // Nothing to render
-        if (p is null && l is null && f is null) return lines;
-
-        static string ComposeLine(int width, params (int pos, string text)[] segments)
-        {
-            var arr = new char[width];
-            for (int i = 0; i < width; i++) arr[i] = ' ';
-            foreach (var seg in segments)
-            {
-                if (seg.pos < 0 || seg.pos >= width) continue;
-                var text = seg.text;
-                int len = Math.Min(text.Length, Math.Max(0, width - seg.pos));
-                for (int i = 0; i < len; i++) arr[seg.pos + i] = text[i];
-            }
-            return new string(arr);
-        }
-
-        const int gap = 2;
-
-        static string ComposeCentered(int width, string text)
-        {
-            int start = Math.Max(0, (width - text.Length) / 2);
-            return ComposeLine(width, (start, text));
-        }
-
-        // Helper to try three-in-one line layout
-        bool TryAllThree(string pp, string ll, string ff, out string? line)
-        {
-            line = null;
-            int pLen = pp.Length, lLen = ll.Length, fLen = ff.Length;
-            if (pLen + gap + fLen > width) return false; // impossible to fit left+right
-            int rightStart = width - fLen;
-            int leftEnd = pLen;
-            int centerStart = Math.Max(leftEnd + gap, (width - lLen) / 2);
-            int centerEnd = centerStart + lLen;
-            if (centerEnd + gap > rightStart) return false; // overlaps
-            line = ComposeLine(width, (0, pp), (centerStart, ll), (rightStart, ff));
-            return true;
-        }
-
-        // Helper to try two on one line (left/right)
-        bool TryLeftRight(string left, string right, out string? line)
-        {
-            line = null;
-            if (left.Length + gap + right.Length > width) return false;
-            int rightStart = width - right.Length;
-            if (rightStart < left.Length + gap) return false;
-            line = ComposeLine(width, (0, left), (rightStart, right));
-            return true;
-        }
-
-        // Layout depending on which are present
-        if (p is not null && l is not null && f is not null)
-        {
-            if (TryAllThree(p, l, f, out var lineA))
-            {
-                lines.Add(lineA!);
-            }
-            else if (TryLeftRight(p, l, out var lineB))
-            {
-                lines.Add(lineB!);
-                lines.Add(ComposeLine(width, (0, f)));
-            }
-            else if (TryLeftRight(l, f, out var lineC))
-            {
-                lines.Add(ComposeLine(width, (0, p)));
-                lines.Add(lineC!);
-            }
-            else
-            {
-                lines.Add(ComposeLine(width, (0, p)));
-                lines.Add(ComposeLine(width, (0, l)));
-                lines.Add(ComposeLine(width, (0, f)));
-            }
-        }
-        else
-        {
-            // At most two present; try to place on one line, else split
-            var present = new List<string>();
-            if (p is not null) present.Add(p);
-            if (l is not null) present.Add(l);
-            if (f is not null) present.Add(f);
-
-            if (present.Count == 1)
-            {
-                // If the only item is the Label (and prefix is hidden), center it to avoid jumpiness
-                if (p is null && l is not null && present[0] == l)
-                    lines.Add(ComposeCentered(width, l));
-                else
-                    lines.Add(ComposeLine(width, (0, present[0])));
-            }
-            else if (present.Count == 2)
-            {
-                // Special handling: prefix hidden, label+filter present -> center label, filter right if possible
-                if (p is null && l is not null && f is not null)
-                {
-                    int fStart = width - f.Length;
-                    int lStart = Math.Max(0, (width - l.Length) / 2);
-                    // Ensure at least gap separation; if overlap, fall back to left/right heuristics
-                    if (lStart + l.Length + gap <= fStart)
-                    {
-                        lines.Add(ComposeLine(width, (lStart, l), (fStart, f)));
-                    }
-                    else if (TryLeftRight(l, f, out var lineLF))
-                    {
-                        lines.Add(lineLF!);
-                    }
-                    else if (TryLeftRight(f, l, out var lineFL))
-                    {
-                        lines.Add(lineFL!);
-                    }
-                    else
-                    {
-                        lines.Add(ComposeLine(width, (0, l)));
-                        lines.Add(ComposeLine(width, (0, f)));
-                    }
-                }
-                else
-                {
-                    var a = present[0];
-                    var b = present[1];
-                    if (TryLeftRight(a, b, out var lineD)) lines.Add(lineD!);
-                    else if (TryLeftRight(b, a, out var lineE)) lines.Add(lineE!);
-                    else { lines.Add(ComposeLine(width, (0, a))); lines.Add(ComposeLine(width, (0, b))); }
-                }
-            }
-        }
-
-        return lines;
+        return HeaderLayout.Compute(width, p, l, f).Count;
     }
-
-    // Expose header line count for paging during prompt PageUp/PageDown
-    internal int GetHeaderLineCountForWidth(int width)
-        => BuildFilterHeaderLines(width).Count;
 
     private void WriteColored(string text)
     {
-        var prev = Console.ForegroundColor;
+        var prev = ConsoleEx.ForegroundColor;
         for (int i = 0; i < text.Length; i++)
         {
             var ch = text[i];
             var color = ClassifyColor(ch);
-            if (Console.ForegroundColor != color) Console.ForegroundColor = color;
-            Console.Write(ch);
+            if (ConsoleEx.ForegroundColor != color) ConsoleEx.ForegroundColor = color;
+            ConsoleEx.Write(ch);
         }
-        if (Console.ForegroundColor != prev) Console.ForegroundColor = prev;
-    }
-
-    private void RenderFilterHeader(int width)
-    {
-        // Determine active filters
-        string? p = string.IsNullOrWhiteSpace(Prefix) ? null : $"Prefix: {Prefix}";
-        string? l = Label is null ? null : $"Label: {(Label.Length == 0 ? "(none)" : Label)}";
-        string? f = string.IsNullOrEmpty(KeyRegexPattern) ? null : $"Filter: {KeyRegexPattern}";
-
-        if (p is null && l is null && f is null) return;
-
-        int startTop;
-        try { startTop = Console.CursorTop; }
-        catch { startTop = 1; }
-
-        const int gap = 2;
-
-        // Locals for rendering one line composed of segments at positions
-        void RenderLine(int top, params (int pos, string text)[] segments)
-        {
-            // Clear the line area first
-            try
-            {
-                Console.SetCursorPosition(0, top);
-                Console.Write(new string(' ', Math.Max(0, width)));
-            }
-            catch { }
-            foreach (var seg in segments)
-            {
-                if (seg.pos < 0 || seg.pos >= width) continue;
-                try { Console.SetCursorPosition(seg.pos, top); }
-                catch { }
-                // Split label/value at first ": "
-                var text = seg.text;
-                int idx = text.IndexOf(": ", StringComparison.Ordinal);
-                if (idx >= 0 && Theme.Enabled)
-                {
-                    Console.Write(text.Substring(0, idx + 2));
-                    var val = text.Substring(idx + 2);
-                    WriteColored(val);
-                }
-                else
-                {
-                    Console.Write(text);
-                }
-            }
-        }
-
-        // Helper to try all 3 on one line (Prefix left, Label center, Filter right)
-        bool TryAllThree(string pp, string ll, string ff)
-        {
-            int pLen = pp.Length, lLen = ll.Length, fLen = ff.Length;
-            if (pLen + gap + fLen > width) return false;
-            int rightStart = width - fLen;
-            int centerStart = Math.Max(pLen + gap, (width - lLen) / 2);
-            if (centerStart + lLen + gap > rightStart) return false;
-            RenderLine(startTop, (0, pp), (centerStart, ll), (rightStart, ff));
-            return true;
-        }
-
-        // Helper for two segments left/right on one line
-        bool TryLeftRight(int top, string left, string right)
-        {
-            if (left.Length + gap + right.Length > width) return false;
-            int rightStart = width - right.Length;
-            if (rightStart < left.Length + gap) return false;
-            RenderLine(top, (0, left), (rightStart, right));
-            return true;
-        }
-
-        int line = 0;
-        if (p is not null && l is not null && f is not null)
-        {
-            if (TryAllThree(p, l, f))
-            {
-                line += 1; // rendered one line
-            }
-            else if (TryLeftRight(startTop + line, p, l))
-            {
-                line += 1;
-                RenderLine(startTop + line, (0, f));
-                line += 1;
-            }
-            else if (TryLeftRight(startTop + line, l, f))
-            {
-                line += 1;
-                RenderLine(startTop + line, (0, p));
-                line += 1;
-            }
-            else
-            {
-                RenderLine(startTop + line, (0, p)); line++;
-                RenderLine(startTop + line, (0, l)); line++;
-                RenderLine(startTop + line, (0, f)); line++;
-            }
-        }
-        else
-        {
-            var present = new List<string>();
-            if (p is not null) present.Add(p);
-            if (l is not null) present.Add(l);
-            if (f is not null) present.Add(f);
-
-            if (present.Count == 1)
-            {
-                if (p is null && l is not null && present[0] == l)
-                {
-                    int centerStart = Math.Max(0, (width - l.Length) / 2);
-                    RenderLine(startTop + line, (centerStart, l));
-                    line++;
-                }
-                else
-                {
-                    RenderLine(startTop + line, (0, present[0]));
-                    line++;
-                }
-            }
-            else if (present.Count == 2)
-            {
-                if (p is null && l is not null && f is not null)
-                {
-                    int fStart = width - f.Length;
-                    int lStart = Math.Max(0, (width - l.Length) / 2);
-                    if (lStart + l.Length + gap <= fStart)
-                    {
-                        RenderLine(startTop + line, (lStart, l), (fStart, f));
-                        line++;
-                    }
-                    else if (TryLeftRight(startTop + line, l, f))
-                    {
-                        line++;
-                    }
-                    else if (TryLeftRight(startTop + line, f, l))
-                    {
-                        line++;
-                    }
-                    else
-                    {
-                        RenderLine(startTop + line, (0, l)); line++;
-                        RenderLine(startTop + line, (0, f)); line++;
-                    }
-                }
-                else
-                {
-                    var a = present[0];
-                    var b = present[1];
-                    if (TryLeftRight(startTop + line, a, b)) line++;
-                    else if (TryLeftRight(startTop + line, b, a)) line++;
-                    else { RenderLine(startTop + line, (0, a)); line++; RenderLine(startTop + line, (0, b)); line++; }
-                }
-            }
-        }
-
-        // After rendering, position cursor at the start of the next line so subsequent
-        // Console.WriteLine writes begin on a fresh line even if we wrote with SetCursorPosition.
-        try
-        {
-            int renderedLines = BuildFilterHeaderLines(width).Count;
-            Console.SetCursorPosition(0, startTop + renderedLines);
-        }
-        catch { }
+        if (ConsoleEx.ForegroundColor != prev) ConsoleEx.ForegroundColor = prev;
     }
 
     private static string PadColumn(string text, int width)
@@ -583,27 +335,27 @@ internal sealed partial class EditorApp
     {
         // Write text up to width with per-character coloring, then pad to width
         int len = Math.Min(text.Length, width);
-        var prev = Console.ForegroundColor;
+        var prev = ConsoleEx.ForegroundColor;
         for (int i = 0; i < len; i++)
         {
             var ch = text[i];
             var color = ClassifyColor(ch);
-            if (Console.ForegroundColor != color) Console.ForegroundColor = color;
-            Console.Write(ch);
+            if (ConsoleEx.ForegroundColor != color) ConsoleEx.ForegroundColor = color;
+            ConsoleEx.Write(ch);
         }
         if (len < width)
         {
-            if (Console.ForegroundColor != Theme.Default) Console.ForegroundColor = Theme.Default;
-            Console.Write(new string(' ', width - len));
+            if (ConsoleEx.ForegroundColor != Theme.Default) ConsoleEx.ForegroundColor = Theme.Default;
+            ConsoleEx.Write(new string(' ', width - len));
         }
-        if (Console.ForegroundColor != prev) Console.ForegroundColor = prev;
+        if (ConsoleEx.ForegroundColor != prev) ConsoleEx.ForegroundColor = prev;
     }
 
     private void WriteColoredFixedWithHighlight(string text, int width, System.Text.RegularExpressions.Regex highlight)
     {
         int len = Math.Min(text.Length, width);
-        var prevFg = Console.ForegroundColor;
-        var prevBg = Console.BackgroundColor;
+        var prevFg = ConsoleEx.ForegroundColor;
+        var prevBg = ConsoleEx.BackgroundColor;
 
         // Precompute highlight flags for displayed substring
         var flags = new bool[len];
@@ -626,22 +378,22 @@ internal sealed partial class EditorApp
             bool hl = flags[i];
             if (hl)
             {
-                if (Console.BackgroundColor != ConsoleColor.DarkYellow) Console.BackgroundColor = ConsoleColor.DarkYellow;
-                if (Console.ForegroundColor != ConsoleColor.Black) Console.ForegroundColor = ConsoleColor.Black;
+                if (ConsoleEx.BackgroundColor != ConsoleColor.DarkYellow) ConsoleEx.BackgroundColor = ConsoleColor.DarkYellow;
+                if (ConsoleEx.ForegroundColor != ConsoleColor.Black) ConsoleEx.ForegroundColor = ConsoleColor.Black;
             }
             else
             {
-                if (Console.BackgroundColor != prevBg) Console.BackgroundColor = prevBg;
-                if (Console.ForegroundColor != fg) Console.ForegroundColor = fg;
+                if (ConsoleEx.BackgroundColor != prevBg) ConsoleEx.BackgroundColor = prevBg;
+                if (ConsoleEx.ForegroundColor != fg) ConsoleEx.ForegroundColor = fg;
             }
-            Console.Write(ch);
+            ConsoleEx.Write(ch);
         }
         // Reset colors and pad if needed
-        if (Console.BackgroundColor != prevBg) Console.BackgroundColor = prevBg;
-        if (Console.ForegroundColor != prevFg) Console.ForegroundColor = prevFg;
+        if (ConsoleEx.BackgroundColor != prevBg) ConsoleEx.BackgroundColor = prevBg;
+        if (ConsoleEx.ForegroundColor != prevFg) ConsoleEx.ForegroundColor = prevFg;
         if (len < width)
         {
-            Console.Write(new string(' ', width - len));
+            ConsoleEx.Write(new string(' ', width - len));
         }
     }
 
@@ -653,6 +405,7 @@ internal sealed partial class EditorApp
         if (char.IsLetter(ch)) return Theme.Letters;
         return Theme.Default; // includes whitespace
     }
+
     internal static ConsoleColor ClassifyColorFor(ConsoleTheme theme, char ch)
     {
         if (ch == '…') return theme.Default; // keep ellipsis neutral
@@ -660,5 +413,521 @@ internal sealed partial class EditorApp
         if (ControlChars.Contains(ch) || char.IsPunctuation(ch)) return theme.Control;
         if (char.IsLetter(ch)) return theme.Letters;
         return theme.Default; // includes whitespace
+    }
+
+    private void RenderHeaderViaLayout(int width)
+    {
+        string? p = string.IsNullOrWhiteSpace(Prefix) ? null : $"Prefix: {Prefix}";
+        string? l = Label is null ? null : $"Label: {(Label.Length == 0 ? "(none)" : Label)}";
+        string? f = string.IsNullOrEmpty(KeyRegexPattern) ? null : $"Filter: {KeyRegexPattern}";
+        if (p is null && l is null && f is null) return;
+        int startTop; try { startTop = ConsoleEx.CursorTop; } catch { startTop = 1; }
+        var layout = HeaderLayout.Compute(width, p, l, f);
+        void RenderLine(int top, System.Collections.Generic.List<HeaderLayout.Segment> segs)
+        {
+            ConsoleEx.SetCursorPosition(0, top);
+            ConsoleEx.Write(new string(' ', Math.Max(0, width)));
+            foreach (var seg in segs)
+            {
+                if (seg.Pos < 0 || seg.Pos >= width) continue;
+                ConsoleEx.SetCursorPosition(seg.Pos, top);
+                var text = seg.Text;
+                int idx = text.IndexOf(": ", System.StringComparison.Ordinal);
+                if (idx >= 0 && Theme.Enabled)
+                {
+                    ConsoleEx.Write(text.Substring(0, idx + 2));
+                    var val = text.Substring(idx + 2);
+                    WriteColored(val);
+                }
+                else
+                {
+                    ConsoleEx.Write(text);
+                }
+            }
+        }
+        int line = 0;
+        foreach (var segs in layout)
+        {
+            RenderLine(startTop + line, segs);
+            line++;
+        }
+        ConsoleEx.SetCursorPosition(0, startTop + line);
+    }
+
+    private void PageUp()
+    {
+        var total = GetVisibleItems().Count;
+        int pageSize, pageCount;
+        try { int h = ConsoleEx.WindowHeight; int w = ConsoleEx.WindowWidth; ComputePaging(h, total, GetHeaderLineCountForWidth(Math.Max(20, Math.Min(w, 240))), out pageSize, out pageCount); }
+        catch { ComputePaging(40, total, GetHeaderLineCountForWidth(100), out pageSize, out pageCount); }
+        if (pageCount <= 1) { _pageIndex = 0; return; }
+        _pageIndex = Math.Max(0, _pageIndex - 1);
+    }
+
+    private void PageDown()
+    {
+        var total = GetVisibleItems().Count;
+        int pageSize, pageCount;
+        try { int h = ConsoleEx.WindowHeight; int w = ConsoleEx.WindowWidth; ComputePaging(h, total, GetHeaderLineCountForWidth(Math.Max(20, Math.Min(w, 240))), out pageSize, out pageCount); }
+        catch { ComputePaging(40, total, GetHeaderLineCountForWidth(100), out pageSize, out pageCount); }
+        if (pageCount <= 1) { _pageIndex = 0; return; }
+        _pageIndex = Math.Min(pageCount - 1, _pageIndex + 1);
+    }
+
+    // Allow commands to trigger paging during custom prompts
+    internal void PageUpCommand() => PageUp();
+    internal void PageDownCommand() => PageDown();
+
+    public async Task LoadAsync()
+    {
+        // Build server snapshot
+        var server = (await _repo.ListAsync(Prefix, Label)).ToList();
+
+        // Map local items to Core using Mapperly
+        var mapper = new EditorMappers();
+        var local = Items.Select(mapper.ToCoreItem).ToList();
+
+        var reconciler = new AppStateReconciler();
+        var freshCore = reconciler.Reconcile(Prefix ?? string.Empty, Label, local, server);
+
+        Items.Clear();
+        foreach (var it in freshCore)
+        {
+            Items.Add(mapper.ToUiItem(it));
+        }
+    }
+
+    public async Task RunAsync()
+    {
+        while (true)
+        {
+            Render();
+            var (ctrlC, input) = ReadLineOrCtrlC_Engine(
+                CommandHistory,
+                onRepaint: () =>
+                {
+                    Render();
+                    return (ConsoleEx.CursorLeft, ConsoleEx.CursorTop);
+                },
+                onPageUp: () => PageUp(),
+                onPageDown: () => PageDown());
+            if (ctrlC)
+            {
+                var quit = new Editor.Commands.Quit();
+                var shouldExit = await quit.TryQuitAsync(this);
+                if (shouldExit) return;
+                // back to main screen
+                continue;
+            }
+            if (input is null) continue;
+            if (!CommandParser.TryParse(input, out var cmd, out var err) || cmd is null)
+            {
+                if (!string.IsNullOrEmpty(err))
+                {
+                    ConsoleEx.WriteLine(err);
+                    ConsoleEx.WriteLine("Press Enter to continue...");
+                    ConsoleEx.ReadLine();
+                }
+                continue;
+            }
+            var result = await cmd.ExecuteAsync(this);
+            // Add executed command to history unless it is a duplicate of the last entry
+            if (!string.IsNullOrWhiteSpace(input))
+            {
+                var last = CommandHistory.Count > 0 ? CommandHistory[^1] : null;
+                if (!string.Equals(last, input, StringComparison.Ordinal))
+                {
+                    CommandHistory.Add(input);
+                }
+            }
+            if (result.ShouldExit) return;
+        }
+    }
+
+    // Simpler input reader for command prompts: supports ESC/Ctrl+C cancel, PageUp/PageDown, full cursor/word ops, and viewport ellipses
+    internal (bool Cancelled, string? Text) ReadLineWithPagingCancelable(
+        Func<(int Left, int Top)> onRepaint,
+        Action onPageUp,
+        Action onPageDown,
+        string? initial = null)
+    {
+        var engine = new LineEditorEngine();
+        engine.SetInitial(initial ?? string.Empty);
+        int startLeft, startTop;
+        startLeft = ConsoleEx.CursorLeft; startTop = ConsoleEx.CursorTop;
+
+        void Render()
+        {
+            int winWidth = ConsoleEx.WindowWidth;
+            int contentWidth = Math.Max(1, winWidth - startLeft - 1);
+            engine.EnsureVisible(contentWidth);
+            var view = engine.GetView(contentWidth);
+            ConsoleEx.SetCursorPosition(startLeft, startTop);
+            int vlen = Math.Min(view.Length, contentWidth);
+            if (vlen > 0) ConsoleEx.Write(view[..vlen]);
+            if (vlen < contentWidth) ConsoleEx.Write(new string(' ', contentWidth - vlen));
+            int cursorCol = startLeft + Math.Min(engine.Cursor - engine.ScrollStart, contentWidth - 1);
+            int safeCol = Math.Min(Math.Max(0, winWidth - 1), Math.Max(0, cursorCol));
+            ConsoleEx.SetCursorPosition(safeCol, startTop);
+        }
+
+        Render();
+        while (true)
+        {
+            ConsoleKeyInfo key;
+            if (ConsoleEx.KeyAvailable) key = ConsoleEx.ReadKey(intercept: true); else { try { System.Threading.Thread.Sleep(25); } catch { } continue; }
+
+            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.C) { ConsoleEx.WriteLine(""); return (true, null); }
+            if (key.Key == ConsoleKey.Escape) { ConsoleEx.WriteLine(""); return (true, null); }
+
+            if (key.Key == ConsoleKey.PageUp || key.Key == ConsoleKey.PageDown)
+            {
+                try { if (key.Key == ConsoleKey.PageUp) onPageUp(); else onPageDown(); } catch { }
+                try { var pos = onRepaint(); startLeft = pos.Left; startTop = pos.Top; } catch { }
+                Render();
+                continue;
+            }
+
+            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.LeftArrow) { engine.CtrlWordLeft(); Render(); continue; }
+            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.RightArrow) { engine.CtrlWordRight(); Render(); continue; }
+            if (((key.Modifiers & ConsoleModifiers.Control) != 0 || (key.Modifiers & ConsoleModifiers.Alt) != 0) && key.Key == ConsoleKey.Backspace) { engine.CtrlWordBackspace(); Render(); continue; }
+            if (((key.Modifiers & ConsoleModifiers.Control) != 0 || (key.Modifiers & ConsoleModifiers.Alt) != 0) && key.Key == ConsoleKey.Delete) { engine.CtrlWordDelete(); Render(); continue; }
+
+            if (key.Key == ConsoleKey.LeftArrow) { engine.Left(); Render(); continue; }
+            if (key.Key == ConsoleKey.RightArrow) { engine.Right(); Render(); continue; }
+            if (key.Key == ConsoleKey.Home) { engine.Home(); Render(); continue; }
+            if (key.Key == ConsoleKey.End) { engine.End(); Render(); continue; }
+
+            if (key.Key == ConsoleKey.Enter) { ConsoleEx.WriteLine(""); return (false, engine.Buffer.ToString()); }
+            if (key.Key == ConsoleKey.Backspace) { engine.Backspace(); Render(); continue; }
+            if (key.Key == ConsoleKey.Delete) { engine.Delete(); Render(); continue; }
+            if (!char.IsControl(key.KeyChar)) { engine.Insert(key.KeyChar); Render(); continue; }
+        }
+    }
+
+    // Engine-backed line editor for the main prompt with history + viewport + paging
+    internal (bool CtrlC, string? Text) ReadLineOrCtrlC_Engine(
+        List<string>? history = null,
+        Func<(int Left, int Top)>? onRepaint = null,
+        Action? onPageUp = null,
+        Action? onPageDown = null)
+    {
+        var engine = new LineEditorEngine();
+        engine.SetInitial(string.Empty);
+        int startLeft, startTop;
+        startLeft = ConsoleEx.CursorLeft; startTop = ConsoleEx.CursorTop;
+        int lastW = ConsoleEx.WindowWidth, lastH = ConsoleEx.WindowHeight;
+
+        int histIndex = history?.Count ?? 0; // bottom slot
+        string draft = string.Empty;
+        bool modifiedFromHistory = false;
+
+        try
+        {
+            int avail = Math.Max(0, ConsoleEx.WindowWidth - startLeft - 1);
+            if (avail < 10) { ConsoleEx.WriteLine(); startLeft = 0; startTop = ConsoleEx.CursorTop; }
+        }
+        catch { }
+
+        void Render()
+        {
+            int w = ConsoleEx.WindowWidth;
+            int content = Math.Max(1, w - startLeft - 1);
+            engine.EnsureVisible(content);
+            var view = engine.GetView(content);
+            try
+            {
+                ConsoleEx.SetCursorPosition(startLeft, startTop);
+                int vlen = Math.Min(view.Length, content);
+                if (vlen > 0) ConsoleEx.Write(view[..vlen]);
+                if (vlen < content) ConsoleEx.Write(new string(' ', content - vlen));
+                int cursorCol = startLeft + Math.Min(engine.Cursor - engine.ScrollStart, content - 1);
+                int safeCol = Math.Min(Math.Max(0, w - 1), Math.Max(0, cursorCol));
+                ConsoleEx.SetCursorPosition(safeCol, startTop);
+            }
+            catch { }
+        }
+
+        Render();
+
+        //TODO: Dedup with line 584+
+        while (true)
+        {
+            // Resize repaint
+            try
+            {
+                int w = ConsoleEx.WindowWidth, h = ConsoleEx.WindowHeight;
+                if ((w != lastW || h != lastH) && onRepaint is not null)
+                {
+                    lastW = w; lastH = h;
+                    var pos = onRepaint();
+                    startLeft = pos.Left; startTop = pos.Top;
+                }
+            }
+            catch { }
+
+            ConsoleKeyInfo key;
+            if (ConsoleEx.KeyAvailable) key = ConsoleEx.ReadKey(intercept: true); else { try { System.Threading.Thread.Sleep(50); } catch { } continue; }
+
+            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.C) { ConsoleEx.WriteLine(""); return (true, null); }
+            if (key.Key == ConsoleKey.Enter) { ConsoleEx.WriteLine(""); return (false, engine.Buffer.ToString()); }
+
+            if (key.Key == ConsoleKey.PageUp || key.Key == ConsoleKey.PageDown)
+            {
+                try
+                {
+                    if (key.Key == ConsoleKey.PageUp) onPageUp?.Invoke(); else onPageDown?.Invoke();
+                    if (onRepaint is not null) { var pos = onRepaint(); startLeft = pos.Left; startTop = pos.Top; }
+                }
+                catch { }
+                Render();
+                continue;
+            }
+            if (key.Key == ConsoleKey.Escape)
+            {
+                if (histIndex != (history?.Count ?? 0)) histIndex = history?.Count ?? 0;
+                engine.SetInitial(string.Empty);
+                draft = string.Empty;
+                modifiedFromHistory = true;
+                Render();
+                continue;
+            }
+
+            // History navigation
+            if (key.Key == ConsoleKey.UpArrow && history is not null)
+            {
+                if (histIndex > 0)
+                {
+                    if (histIndex == history.Count) draft = engine.Buffer.ToString();
+                    histIndex--;
+                    engine.SetInitial(history[histIndex]);
+                    modifiedFromHistory = false;
+                    Render();
+                }
+                continue;
+            }
+            if (key.Key == ConsoleKey.DownArrow && history is not null)
+            {
+                if (histIndex < history.Count)
+                {
+                    histIndex++;
+                    if (histIndex == history.Count) engine.SetInitial(draft); else engine.SetInitial(history[histIndex]);
+                    modifiedFromHistory = false;
+                    Render();
+                }
+                continue;
+            }
+
+            void EnsureDraft()
+            {
+                if (histIndex != (history?.Count ?? 0) && !modifiedFromHistory)
+                {
+                    modifiedFromHistory = true;
+                    draft = engine.Buffer.ToString();
+                    histIndex = history?.Count ?? 0;
+                }
+            }
+
+            // Word ops
+            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.LeftArrow) { engine.CtrlWordLeft(); Render(); continue; }
+            if ((key.Modifiers & ConsoleModifiers.Control) != 0 && key.Key == ConsoleKey.RightArrow) { engine.CtrlWordRight(); Render(); continue; }
+            if (((key.Modifiers & ConsoleModifiers.Control) != 0 || (key.Modifiers & ConsoleModifiers.Alt) != 0) && key.Key == ConsoleKey.Backspace) { EnsureDraft(); engine.CtrlWordBackspace(); if (histIndex == (history?.Count ?? 0)) draft = engine.Buffer.ToString(); Render(); continue; }
+            if (((key.Modifiers & ConsoleModifiers.Control) != 0 || (key.Modifiers & ConsoleModifiers.Alt) != 0) && key.Key == ConsoleKey.Delete) { EnsureDraft(); engine.CtrlWordDelete(); if (histIndex == (history?.Count ?? 0)) draft = engine.Buffer.ToString(); Render(); continue; }
+
+            // Basic nav
+            if (key.Key == ConsoleKey.LeftArrow) { engine.Left(); Render(); continue; }
+            if (key.Key == ConsoleKey.RightArrow) { engine.Right(); Render(); continue; }
+            if (key.Key == ConsoleKey.Home) { engine.Home(); Render(); continue; }
+            if (key.Key == ConsoleKey.End) { engine.End(); Render(); continue; }
+
+            // Char edits
+            if (key.Key == ConsoleKey.Backspace) { EnsureDraft(); engine.Backspace(); if (histIndex == (history?.Count ?? 0)) draft = engine.Buffer.ToString(); Render(); continue; }
+            if (key.Key == ConsoleKey.Delete) { EnsureDraft(); engine.Delete(); if (histIndex == (history?.Count ?? 0)) draft = engine.Buffer.ToString(); Render(); continue; }
+            if (!char.IsControl(key.KeyChar)) { EnsureDraft(); engine.Insert(key.KeyChar); if (histIndex == (history?.Count ?? 0)) draft = engine.Buffer.ToString(); Render(); continue; }
+        }
+    }
+
+    private static string MakeKey(string fullKey, string? label)
+        => fullKey + "\n" + (label ?? string.Empty);
+
+    internal async Task SaveAsync(bool pause = true)
+    {
+        ConsoleEx.WriteLine("Saving changes...");
+        int changes = 0;
+
+        // Compute consolidated change set using Core.ChangeApplier
+        var mapper = new EditorMappers();
+        var coreItems = Items.Select(mapper.ToCoreItem).ToList();
+        var changeSet = AppConfigCli.Core.ChangeApplier.Compute(coreItems);
+
+        // Apply upserts (last-wins per key/label already handled in ChangeApplier)
+        foreach (var up in changeSet.Upserts)
+        {
+            try
+            {
+                await _repo.UpsertAsync(up);
+
+                // Mark all corresponding UI items as unchanged and sync OriginalValue
+                foreach (var it in Items.Where(i =>
+                    i.FullKey == up.Key &&
+                    string.Equals(AppConfigCli.Core.LabelFilter.ForWrite(i.Label), up.Label, StringComparison.Ordinal)).ToList())
+                {
+                    it.OriginalValue = it.Value;
+                    it.State = ItemState.Unchanged;
+                }
+                changes++;
+            }
+            catch (RequestFailedException ex)
+            {
+                ConsoleEx.WriteLine($"Failed to set '{up.Key}': {ex.Message}");
+            }
+        }
+
+        // Apply deletions
+        foreach (var del in changeSet.Deletes)
+        {
+            try
+            {
+                await _repo.DeleteAsync(del.Key, del.Label);
+                // Remove only items marked as Deleted for that key/label
+                for (int idx = Items.Count - 1; idx >= 0; idx--)
+                {
+                    var it = Items[idx];
+                    if (it.State != ItemState.Deleted) continue;
+                    if (it.FullKey != del.Key) continue;
+                    if (!string.Equals(AppConfigCli.Core.LabelFilter.ForWrite(it.Label), del.Label, StringComparison.Ordinal)) continue;
+                    Items.RemoveAt(idx);
+                }
+                changes++;
+            }
+            catch (RequestFailedException ex)
+            {
+                ConsoleEx.WriteLine($"Failed to delete '{del.Key}': {ex.Message}");
+            }
+        }
+
+        ConsoleEx.WriteLine(changes == 0 ? "No changes to save." : $"Saved {changes} change(s).");
+        if (pause)
+        {
+            ConsoleEx.WriteLine("Press Enter to continue...");
+            ConsoleEx.ReadLine();
+        }
+    }
+
+    internal bool HasPendingChanges(out int newCount, out int modCount, out int delCount)
+    {
+        newCount = Items.Count(i => i.State == ItemState.New);
+        modCount = Items.Count(i => i.State == ItemState.Modified);
+        delCount = Items.Count(i => i.State == ItemState.Deleted);
+        return (newCount + modCount + delCount) > 0;
+    }
+
+    internal static int CompareItems(Item a, Item b)
+    {
+        //TODO: This utility function should be moved somewhere else
+        int c = string.Compare(a.ShortKey, b.ShortKey, StringComparison.Ordinal);
+        if (c != 0) return c;
+        return string.Compare(a.Label ?? string.Empty, b.Label ?? string.Empty, StringComparison.Ordinal);
+    }
+
+    internal void ConsolidateDuplicates()
+    {
+        var groups = Items.GroupBy(i => MakeKey(i.FullKey, i.Label)).ToList();
+        foreach (var g in groups)
+        {
+            if (g.Count() <= 1) continue;
+            var keep = g.FirstOrDefault(i => i.State != ItemState.Deleted) ?? g.First();
+            foreach (var extra in g)
+            {
+                if (!ReferenceEquals(extra, keep))
+                {
+                    Items.Remove(extra);
+                }
+            }
+        }
+    }
+
+    internal List<Item> GetVisibleItems()
+    {
+        // Delegate visibility to Core.ItemFilter to keep semantics centralized
+        var mapper = new EditorMappers();
+        var coreList = Items.Select(mapper.ToCoreItem).ToList();
+        var indices = AppConfigCli.Core.ItemFilter.VisibleIndices(coreList, Label, KeyRegex);
+        var result = new List<Item>(indices.Count);
+        foreach (var idx in indices)
+        {
+            result.Add(Items[idx]);
+        }
+        return result;
+    }
+
+    internal List<int>? MapVisibleRangeToItemIndices(int start, int end, out string error)
+    {
+        // Use Core.ItemFilter to compute indices against a mapped Core list
+        var mapper = new EditorMappers();
+        var coreList = Items.Select(mapper.ToCoreItem).ToList();
+        var indices = AppConfigCli.Core.ItemFilter.MapVisibleRangeToSourceIndices(coreList, Label, KeyRegex, start, end, out error);
+        return indices;
+    }
+
+    internal void InvalidatePrefixCache()
+    {
+        _prefixCache = null;
+    }
+
+    internal async Task<IReadOnlyList<string>> GetPrefixCandidatesAsync()
+    {
+        if (_prefixCache is not null)
+            return _prefixCache;
+
+        var set = new HashSet<string>(StringComparer.Ordinal);
+
+        // Include in-memory items (unsaved/new)
+        foreach (var it in Items)
+        {
+            if (it.FullKey != null)
+            {
+                var index = it.FullKey.IndexOf('/');
+                if (index > 0) set.Add(it.FullKey[..(index + 1)]);
+            }
+        }
+
+        // Include all repository entries (ignoring filters)
+        //TODO: We could filter by Label, if we invalidate the cache on label change
+        var allKeys = await _repo.FetchKeysAsync(prefix: null, labelFilter: null).ConfigureAwait(false);
+        foreach (var key in allKeys)
+        {
+            var index = key.IndexOf('/');
+            if (index > 0)
+            {
+                set.Add(key[..(index + 1)]);
+            }
+        }
+
+        _prefixCache = [.. set.OrderBy(s => s, StringComparer.Ordinal)];
+        return _prefixCache;
+    }
+
+    internal bool TryAddPrefixFromKey(string key)
+    {
+        if (_prefixCache is null)
+            return false; // cache not built yet
+
+        if (string.IsNullOrEmpty(key))
+            return false; // no key => no prefix
+
+        var keyIndex = key.IndexOf('/');
+        if (keyIndex <= 0)
+            return false; // no prefix
+
+        var prefix = key[..(keyIndex + 1)];
+
+        var prefixIndex = _prefixCache.BinarySearch(prefix, StringComparer.Ordinal);
+        if (prefixIndex >= 0)
+            return false; // already present
+
+        // insert prefix in sorted order
+        _prefixCache.Insert(~prefixIndex, prefix);
+        return true;
     }
 }
