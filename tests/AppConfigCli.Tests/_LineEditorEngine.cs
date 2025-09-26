@@ -65,13 +65,13 @@ public class _LineEditorEngine
         var width = 10;
         e.EnsureVisible(width);
         var view = e.GetView(width);
-        view.Should().StartWith("…");
+        view.Should().StartWith("â€¦");
         // At buffer end, trailing ellipsis is not shown
-        view.EndsWith("…").Should().BeFalse();
+        view.EndsWith("â€¦").Should().BeFalse();
         // Move to start and ensure leading ellipsis disappears
         e.Home();
         e.EnsureVisible(width);
         e.ScrollStart.Should().Be(0);
-        e.GetView(width).StartsWith("…").Should().BeFalse();
+        e.GetView(width).StartsWith("â€¦").Should().BeFalse();
     }
 }
