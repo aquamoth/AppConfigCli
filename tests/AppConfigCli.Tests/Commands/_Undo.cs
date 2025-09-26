@@ -36,7 +36,8 @@ public partial class _Commands
         {
             // Arrange
             var repo = SeedRepo();
-            var app = await InstrumentedEditorApp(repo, "original");
+            var consoleEx = new TestConsoleEx();
+            var app = await InstrumentedEditorApp(repo, "original", consoleEx);
 
             // Sanity: visible rows for label: original
             var visibleBefore = app.GetVisibleItems();

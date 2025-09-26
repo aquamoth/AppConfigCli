@@ -13,22 +13,15 @@ public class _IndexMapping
         // Repo not used by MapVisibleRangeToItemIndices; provide a minimal in-memory repo
         var repo = new AppConfigCli.Core.InMemoryConfigRepository(new List<AppConfigCli.Core.ConfigEntry>());
 
-        var app = new EditorApp(
-            repo,
-            prefix: "p:",
-            null,
-            () => Task.CompletedTask,
-            new DefaultFileSystem(),
-            new DefaultExternalEditor(),
-            ConsoleTheme.Load(),
-            new DefaultConsoleEx());
+        var app = _Commands.InstrumentedEditorApp(repo, null).Result;
 
-        app.Test_Items.AddRange(new[]
-        {
+        app.Test_Items.AddRange(
+        [
             new Item { FullKey = "p:Color", ShortKey = "Color", Label = "dev", OriginalValue = "red", Value = "red", State = ItemState.Unchanged },
             new Item { FullKey = "p:Color", ShortKey = "Color", Label = "prod", OriginalValue = "blue", Value = "blue", State = ItemState.Unchanged },
             new Item { FullKey = "p:Title", ShortKey = "Title", Label = null, OriginalValue = "Hello", Value = "Hello", State = ItemState.Unchanged },
-        });
+        ]);
+
         return app;
     }
 

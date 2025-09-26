@@ -1,34 +1,14 @@
 using System;
-using System.IO;
 using System.Linq;
 using System.Threading.Tasks;
 using AppConfigCli;
 using AppConfigCli.Core;
-using AppConfigCli.Editor.Abstractions;
 using AppConfigCli.Editor.Commands;
 using FluentAssertions;
 using Xunit;
 
 public partial class _Commands
 {
-    internal static readonly TestConsoleEx consoleEx = new TestConsoleEx();
-
-    internal static async Task<EditorApp> InstrumentedEditorApp(InMemoryConfigRepository repo, string label)
-    {
-        var app = new EditorApp(
-            repo,
-            prefix: "p:",
-            label,
-            () => Task.CompletedTask,
-            new DefaultFileSystem(),
-            new DefaultExternalEditor(),
-            ConsoleTheme.Load(),
-            consoleEx);
-
-        await app.LoadAsync();
-        return app;
-    }
-
     public class _Copy
     {
         private static InMemoryConfigRepository SeedRepo()
@@ -36,16 +16,16 @@ public partial class _Commands
             // Prefix p:, two keys A/B under two labels: original and hidden
             var entries = new[]
             {
-            new ConfigEntry { Key = "p:A", Label = null, Value = "nullA" },
-            new ConfigEntry { Key = "p:B", Label = null, Value = "nullB" },
-            new ConfigEntry { Key = "p:C", Label = null, Value = "nullC" },
-            new ConfigEntry { Key = "p:A", Label = "original", Value = "origA" },
-            new ConfigEntry { Key = "p:B", Label = "original", Value = "origB" },
-            new ConfigEntry { Key = "p:C", Label = "original", Value = "origC" },
-            new ConfigEntry { Key = "p:A", Label = "hidden",   Value = "hidA"  },
-            new ConfigEntry { Key = "p:B", Label = "hidden",   Value = "hidB"  },
-            new ConfigEntry { Key = "p:C", Label = "hidden",   Value = "hidC"  },
-        }.ToList();
+                new ConfigEntry { Key = "p:A", Label = null, Value = "nullA" },
+                new ConfigEntry { Key = "p:B", Label = null, Value = "nullB" },
+                new ConfigEntry { Key = "p:C", Label = null, Value = "nullC" },
+                new ConfigEntry { Key = "p:A", Label = "original", Value = "origA" },
+                new ConfigEntry { Key = "p:B", Label = "original", Value = "origB" },
+                new ConfigEntry { Key = "p:C", Label = "original", Value = "origC" },
+                new ConfigEntry { Key = "p:A", Label = "hidden",   Value = "hidA"  },
+                new ConfigEntry { Key = "p:B", Label = "hidden",   Value = "hidB"  },
+                new ConfigEntry { Key = "p:C", Label = "hidden",   Value = "hidC"  },
+            }.ToList();
 
             return new InMemoryConfigRepository(entries);
         }
@@ -55,7 +35,8 @@ public partial class _Commands
         {
             // Arrange
             var repo = SeedRepo();
-            var app = await InstrumentedEditorApp(repo, "original");
+            var consoleEx = new TestConsoleEx();
+            var app = await InstrumentedEditorApp(repo, "original", consoleEx);
 
             // Sanity: only two visible rows (label: original)
             var visible = app.GetVisibleItems();
