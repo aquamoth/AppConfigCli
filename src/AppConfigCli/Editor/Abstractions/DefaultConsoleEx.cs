@@ -13,7 +13,7 @@ internal sealed class DefaultConsoleEx : IConsoleEx
         Console.OutputEncoding = Encoding.UTF8;
         Console.CancelKeyPress += (s, e) =>
         {
-            e.Cancel = true;   // don’t terminate the process
+            e.Cancel = true;   // donâ€™t terminate the process
             hasPendingCtrlC = true;      // record the fact
         };
     }
