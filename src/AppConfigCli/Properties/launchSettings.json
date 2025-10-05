@@ -1,11 +1,22 @@
 {
   "profiles": {
-    "AppConfigCli": {
+    "Production": {
       "commandName": "Project",
       "commandLineArgs": "--auth cli",
       "environmentVariables": {
         "APP_CONFIG_ENDPOINT": "https://sh-neu-app-config.azconfig.io"
       }
+    },
+    "Slask": {
+      "commandName": "Project",
+      "commandLineArgs": "--auth cli",
+      "environmentVariables": {
+        "APP_CONFIG_ENDPOINT": "https://sh-app-config-slask.azconfig.io"
+      }
+    },
+    "Choose Enpoint": {
+      "commandName": "Project",
+      "commandLineArgs": "--auth cli"
     }
   }
 }

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using System.Text.Encodings.Web;
 using YamlDotNet.Serialization;
 using YamlDotNet.Serialization.NamingConventions;
 using AppConfigCli.Core;
@@ -16,7 +17,14 @@ internal static class StructuredEditHelper
             .Where(i => i.State != ItemState.Deleted)
             .ToDictionary(i => i.ShortKey, i => i.Value ?? string.Empty, StringComparer.Ordinal);
         var root = FlatKeyMapper.BuildTree(flats, separator);
-        return JsonSerializer.Serialize(root, new JsonSerializerOptions { WriteIndented = true });
+        // Use relaxed encoder so ASCII characters like '+' are not escaped (e.g., '\u002B').
+        // This produces more natural JSON for editing in plain-text editors like Notepad.
+        var jsonOptions = new JsonSerializerOptions
+        {
+            WriteIndented = true,
+            Encoder = JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+        };
+        return JsonSerializer.Serialize(root, jsonOptions);
     }
 
     public static (bool Ok, string Error, int Created, int Updated, int Deleted) ApplyJsonEdits(string json, string separator, List<Item> allItems, IEnumerable<Item> visibleUnderLabel, string? prefix, string? activeLabel)
